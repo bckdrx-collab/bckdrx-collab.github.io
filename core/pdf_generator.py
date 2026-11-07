@@ -176,16 +176,19 @@ def generate_dashboard_chart_png(df: pd.DataFrame, output_path: str = "soc_l2_da
 
 
 def _draw_header_footer(canvas, doc):
-    """Dibuja barra superior corporativa y pie de página numerado en cada hoja."""
+    """Dibuja barra superior corporativa y pie de página numerado en cada hoja sin traslapes."""
     canvas.saveState()
     width, height = letter
 
     # Barra superior oscura SOC L2
     canvas.setFillColor(colors.HexColor("#0F172A"))
     canvas.rect(0, height - 28, width, 28, fill=1, stroke=0)
+
+    # Texto izquierdo y derecho con fuente 8pt y separación garantizada (>120pt libres en el centro)
+    canvas.setFont("Helvetica-Bold", 8.0)
     canvas.setFillColor(colors.HexColor("#F8FAFC"))
-    canvas.setFont("Helvetica-Bold", 8.5)
-    canvas.drawString(36, height - 18, "CENTRO DE OPERACIONES DE SEGURIDAD (SOC NIVEL 2) — INFORME FORENSE Y EJECUTIVO")
+    canvas.drawString(36, height - 18, "CENTRO DE OPERACIONES DE SEGURIDAD (SOC NIVEL 2) — INFORME FORENSE")
+
     canvas.setFillColor(colors.HexColor("#F59E0B"))
     canvas.drawRightString(width - 36, height - 18, "CLASIFICACIÓN: TLP:AMBER+STRICT")
 
@@ -194,8 +197,8 @@ def _draw_header_footer(canvas, doc):
     canvas.setLineWidth(0.6)
     canvas.line(36, 34, width - 36, 34)
     canvas.setFillColor(colors.HexColor("#475569"))
-    canvas.setFont("Helvetica", 8)
-    canvas.drawString(36, 21, "Bootcamp SOC Nivel 2 — Análisis de Incidentes asistido por IA Generativa y Correlación Forense")
+    canvas.setFont("Helvetica", 8.0)
+    canvas.drawString(36, 21, "Bootcamp SOC Nivel 2 (Dojo Community) — Análisis Forense SIEM & Respuesta a Incidentes")
     canvas.drawRightString(width - 36, 21, f"Página {doc.page}")
     canvas.restoreState()
 
@@ -355,7 +358,7 @@ def build_pdf_report(
             Paragraph(f"{summary_metrics['native_non_info_alerts']}", kpi_style_num),
             Paragraph(f"<font color='#DC2626'>{summary_metrics['correlated_malicious_events']}</font>", kpi_style_num),
             Paragraph(f"<font color='#2563EB'>{summary_metrics['hidden_info_critical_events']}</font>", kpi_style_num),
-            Paragraph(f"<font color='#DC2626'>{high_cnt} ALTOS / {med_cnt} MEDIO</font>", kpi_style_num),
+            Paragraph(f"<font size='10.5' color='#DC2626'>{high_cnt} ALTOS + {med_cnt} OBS</font>", kpi_style_num),
             Paragraph(f"<font color='#B91C1C'>{summary_metrics['exfil_mib']} MiB</font>", kpi_style_num),
         ],
         [
@@ -363,7 +366,7 @@ def build_pdf_report(
             Paragraph("Alertas Nativas<br/>SIEM (No-Info)", kpi_style_lbl),
             Paragraph("Eventos Maliciosos<br/>Correlacionados", kpi_style_lbl),
             Paragraph("Eventos Críticos<br/>Ocultos en 'Info'", kpi_style_lbl),
-            Paragraph("Clasificación<br/>de Incidentes", kpi_style_lbl),
+            Paragraph("Incidentes Reales<br/>Detectados", kpi_style_lbl),
             Paragraph(f"Exfiltración HTTPS<br/>({summary_metrics['exfil_mb']} MB)", kpi_style_lbl),
         ],
     ]
@@ -376,6 +379,8 @@ def build_pdf_report(
                 ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
                 ("TOPPADDING", (0, 0), (-1, 0), 7),
                 ("BOTTOMPADDING", (0, 1), (-1, 1), 7),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
             ]
         )
     )
@@ -429,7 +434,7 @@ def build_pdf_report(
             ]
         )
 
-    matrix_table = Table(matrix_rows, colWidths=[42, 136, 72, 105, 95, 45, 45], repeatRows=1)
+    matrix_table = Table(matrix_rows, colWidths=[42, 134, 72, 104, 94, 48, 46], repeatRows=1)
     matrix_table.setStyle(
         TableStyle(
             [
@@ -439,6 +444,8 @@ def build_pdf_report(
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("TOPPADDING", (0, 0), (-1, -1), 5),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
             ]
         )
     )
@@ -509,7 +516,7 @@ def build_pdf_report(
             ]
         )
     if len(hidden_rows) > 1:
-        hidden_table = Table(hidden_rows, colWidths=[52, 50, 44, 52, 44, 72, 66, 160], repeatRows=1)
+        hidden_table = Table(hidden_rows, colWidths=[50, 48, 48, 52, 48, 72, 64, 158], repeatRows=1)
         hidden_table.setStyle(
             TableStyle(
                 [
@@ -519,6 +526,8 @@ def build_pdf_report(
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("TOPPADDING", (0, 0), (-1, -1), 3.5),
                     ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
                 ]
             )
         )

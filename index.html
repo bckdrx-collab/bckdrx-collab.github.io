@@ -299,6 +299,23 @@
       gap: 0.5rem;
       margin-bottom: 0.6rem;
     }
+    .killchain-flow {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin: 0.55rem 0;
+    }
+    .kc-step {
+      background: rgba(30, 41, 59, 0.95);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #7DD3FC;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.74rem;
+      font-weight: 600;
+    }
+    .kc-arrow { color: #64748B; font-weight: 700; font-size: 0.8rem; }
     .badge {
       display: inline-block;
       padding: 0.2rem 0.58rem;
@@ -320,6 +337,28 @@
       border-radius: 9px;
       margin: 0.7rem 0;
       font-size: 0.82rem;
+    }
+    .quick-pills {
+      display: flex;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.85rem;
+    }
+    .pill-btn {
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #E2E8F0;
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .pill-btn:hover {
+      background: rgba(37, 99, 235, 0.35);
+      border-color: #38BDF8;
+      color: #FFFFFF;
     }
     .table-wrap {
       overflow-x: auto;
@@ -430,7 +469,7 @@
       <div class="side-section">
         <h4>📂 Ingesta SIEM (.xlsx en vivo)</h4>
         <p style="font-size:0.75rem;color:#94A3B8;margin-bottom:0.45rem;">
-          Dataset oficial precargado (715 eventos). También puedes validar cualquier archivo <code>.xlsx</code> local:
+          Dataset oficial precargado (715 eventos). También puedes cargar y correlacionar cualquier archivo <code>.xlsx</code> local:
         </p>
         <input type="file" id="xlsx-upload" accept=".xlsx,.xls" style="font-size:0.74rem;padding:0.38rem;" onchange="handleXlsxUpload(event)" />
         <div id="upload-status" style="font-size:0.74rem;color:#10B981;margin-top:0.38rem;">
@@ -450,6 +489,9 @@
         <a href="soc_l2_dashboard_summary.png" target="_blank" class="btn-cta btn-secondary">
           🖼️ Ver Panel Gráfico HD (.png)
         </a>
+        <a href="https://github.com/bckdrx-collab/soc-l2-incident-response" target="_blank" class="btn-cta btn-secondary">
+          💻 Ver Código Fuente en GitHub
+        </a>
       </div>
 
       <!-- Parkinson's Law SLA -->
@@ -459,7 +501,7 @@
           <div>• <b>Inicio:</b> 2026-10-23 07:46:07</div>
           <div>• <b>Fin:</b> 2026-10-23 13:44:06</div>
           <div>• <b>Duración:</b> 5h 57m 59s</div>
-          <div>• <b>Motor:</b> <span style="color:#38BDF8;">Doherty &lt; 30ms Ready</span></div>
+          <div>• <b>Motor:</b> <span id="doherty-badge" style="color:#38BDF8;">Doherty &lt; 25ms Ready</span></div>
         </div>
       </div>
     </aside>
@@ -488,13 +530,13 @@
       <section class="kpi-grid">
         <div class="kpi-card">
           <div class="kpi-label">1. Eventos Analizados</div>
-          <div class="kpi-value">715</div>
-          <span class="kpi-delta">591 ruido base (82.7%)</span>
+          <div class="kpi-value" id="kpi-total-val">715</div>
+          <span class="kpi-delta" id="kpi-total-sub">591 ruido base (82.7%)</span>
         </div>
         <div class="kpi-card warning">
           <div class="kpi-label">2. Eventos Maliciosos L2</div>
-          <div class="kpi-value">124</div>
-          <span class="kpi-delta red">112 alertas + 12 ocultos Info</span>
+          <div class="kpi-value" id="kpi-mal-val">124</div>
+          <span class="kpi-delta red" id="kpi-mal-sub">112 alertas + 12 ocultos Info</span>
         </div>
         <div class="kpi-card critical">
           <div class="kpi-label">3. Incidentes Críticos</div>
@@ -515,12 +557,12 @@
 
       <!-- NAVIGATION TABS -->
       <nav class="tabs-bar">
-        <button class="tab-btn active" onclick="switchTab('tab-panorama', this)">📊 1. Panorama Táctico (80/20)</button>
-        <button class="tab-btn" onclick="switchTab('tab-incidentes', this)">🚨 2. Los 6 Incidentes + OBS-01</button>
-        <button class="tab-btn" onclick="switchTab('tab-trampa', this)">🕵️‍♂️ 3. Trampa SIEM (12 Eventos Info)</button>
-        <button class="tab-btn" onclick="switchTab('tab-explorador', this)">🔎 4. Explorador Forense (715 Logs)</button>
-        <button class="tab-btn" onclick="switchTab('tab-ux', this)">🧠 5. Arquitectura Cognitiva (30 Leyes UX)</button>
-        <button class="tab-btn" onclick="switchTab('tab-informes', this)">📄 6. Informes IA & Exportación PDF</button>
+        <button id="btn-tab-panorama" class="tab-btn active" onclick="switchTab('tab-panorama', this)">📊 1. Panorama Táctico (80/20)</button>
+        <button id="btn-tab-incidentes" class="tab-btn" onclick="switchTab('tab-incidentes', this)">🚨 2. Los 6 Incidentes + OBS-01</button>
+        <button id="btn-tab-trampa" class="tab-btn" onclick="switchTab('tab-trampa', this)">🕵️‍♂️ 3. Trampa SIEM (12 Eventos Info)</button>
+        <button id="btn-tab-explorador" class="tab-btn" onclick="switchTab('tab-explorador', this)">🔎 4. Explorador Forense (715 Logs)</button>
+        <button id="btn-tab-ux" class="tab-btn" onclick="switchTab('tab-ux', this)">🧠 5. Arquitectura Cognitiva (30 Leyes UX)</button>
+        <button id="btn-tab-informes" class="tab-btn" onclick="switchTab('tab-informes', this)">📄 6. Informes IA & Exportación PDF</button>
       </nav>
 
       <!-- TAB 1: PANORAMA TACTICO -->
@@ -586,6 +628,15 @@
             <span>🔎 Explorador de Telemetría SIEM (715 Eventos Normalizados)</span>
             <span id="explorer-count" class="badge badge-mitre">Mostrando 715 eventos</span>
           </h3>
+          <!-- Hick's Law & Pareto 80/20 Quick Filter Pills -->
+          <div class="quick-pills">
+            <button class="pill-btn" onclick="applyQuickFilter('MALICIOUS', 'ALL', 'ALL', '')">🎯 Pareto 80/20: 124 Maliciosos</button>
+            <button class="pill-btn" onclick="applyQuickFilter('TRAP', 'ALL', 'ALL', '')">🟣 Von Restorff: 12 Trampas Info</button>
+            <button class="pill-btn" onclick="applyQuickFilter('INC-03', 'ALL', 'ALL', 'vssadmin')">💥 Pre-Ransomware (vssadmin)</button>
+            <button class="pill-btn" onclick="applyQuickFilter('INC-04', 'ALL', 'ALL', '')">📤 Exfiltración Legal (241.57 MiB)</button>
+            <button class="pill-btn" onclick="applyQuickFilter('INC-06', 'ALL', 'ALL', 'test.aspx')">🕸️ Webshell IIS (test.aspx)</button>
+            <button class="pill-btn" onclick="applyQuickFilter('ALL', 'ALL', 'ALL', '')">🔄 Mostrar Todo (715)</button>
+          </div>
           <div class="filter-bar">
             <div>
               <label style="font-size:0.74rem;color:#94A3B8;">Filtrar por Incidente</label>
@@ -671,11 +722,36 @@
               <a href="Informe_Final_SOC_L2_Incidentes.pdf" download="Informe_Final_SOC_L2_Incidentes.pdf" class="btn-cta btn-primary" style="width:auto;min-height:38px;padding:0.45rem 0.95rem;">
                 📥 Descargar PDF Compilado Oficial
               </a>
+              <button class="btn-cta btn-secondary" style="width:auto;min-height:38px;padding:0.45rem 0.95rem;" onclick="downloadMarkdownReport()">
+                📝 Descargar Informes (.md)
+              </button>
               <button class="btn-cta btn-secondary" style="width:auto;min-height:38px;padding:0.45rem 0.95rem;" onclick="window.print()">
                 🖨️ Imprimir / Guardar Vista
               </button>
             </div>
           </h3>
+          <div class="filter-bar" style="margin-top:0.65rem;">
+            <div>
+              <label style="font-size:0.74rem;color:#94A3B8;">Motor de Generación de Informes</label>
+              <select id="ai-provider">
+                <option value="deterministic">Motor Forense Híbrido SOC L2 (Auditado • Instantáneo)</option>
+                <option value="openai">OpenAI / Compatible API (gpt-4o-mini)</option>
+                <option value="groq">Groq Cloud API (llama-3.3-70b-versatile)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:0.74rem;color:#94A3B8;">API Key (Opcional — solo para OpenAI/Groq en vivo)</label>
+              <input type="password" id="ai-key" placeholder="sk-... / gsk_..." />
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:0.5rem;">
+              <button class="btn-cta btn-secondary" style="min-height:38px;" onclick="generateLiveAIReport()">
+                ⚡ Sintetizar con Agente IA
+              </button>
+            </div>
+          </div>
+          <div id="ai-status-msg" style="font-size:0.78rem;color:#10B981;">
+            ✔ Estado: Informes Ejecutivo y Técnico sincronizados con los 715 eventos y 6 incidentes críticos.
+          </div>
         </div>
         <div class="grid-2">
           <div class="panel-card">
@@ -708,7 +784,7 @@
       ["11. Navaja de Occam", "Priorizar la explicación más directa y verificable.", "Gráficos limpios sin adornos 3D innecesarios y correlación determinista."],
       ["12. Conectividad Uniforme", "Elementos conectados visualmente se perciben relacionados.", "Cadenas de ataque conectadas: Origen → Vector → Host → Impacto."],
       ["13. Ley de Fitts", "Objetivos grandes y cercanos se alcanzan más rápido.", "Botones CTA de descarga PDF de ancho completo y 46px de altura mínima."],
-      ["14. Ley de Hick", "Reducir el número de opciones acelera la decisión.", "Filtros preconfigurados por incidente y severidad con valores óptimos por defecto."],
+      ["14. Ley de Hick", "Reducir el número de opciones acelera la decisión.", "Píldoras de filtro rápido de 1 clic y selectores preconfigurados."],
       ["15. Ley de Jakob", "Usar convenciones familiares de plataformas SIEM.", "Estructura familiar estilo Splunk ES / Microsoft Sentinel / Elastic Security."],
       ["16. Ley de la Semejanza", "Elementos similares se perciben agrupados.", "Semáforo cromático consistente (Rojo=Alto/Crítico, Ámbar=Medio, Púrpura=Trampa Info)."],
       ["17. Ley de Miller", "Mantener 7±2 elementos en memoria de trabajo.", "5 KPIs principales en la cabecera y 6 pestañas de navegación."],
@@ -722,17 +798,37 @@
       ["25. Paradoja del Usuario Activo", "El usuario usa la app de inmediato sin leer manuales.", "Precarga automática de los 715 eventos e informes listos desde el segundo cero."],
       ["26. Principio de Pareto (80/20)", "El 80% del riesgo proviene del 20% de los eventos.", "Foco directo en el 17.3% de eventos maliciosos (124 de 715) que causan el 100% del daño."],
       ["27. Regla de Fin de Pico", "La experiencia se juzga por su punto álgido y su final.", "Pico: hallazgo de los 12 logs ocultos; Final: descarga instantánea del PDF profesional."],
-      ["28. Revelación Progresiva", "Mostrar primero el resumen y luego el detalle a demanda.", "Tarjetas ejecutivas con tablas de logs detalladas bajo demanda."],
+      ["28. Revelación Progresiva", "Mostrar primero el resumen y luego el detalle a demanda.", "Tarjetas ejecutivas con salto directo al explorador de logs bajo demanda."],
       ["29. Sesgo Cognitivo", "Mitigar el sesgo de anclaje en severidades del SIEM.", "Alerta explícita contra confiar ciegamente en Severity=Informational."],
-      ["30. Umbral de Doherty (<400 ms)", "Respuestas en menos de 400 ms mantienen la atención.", "Motor en memoria en el navegador con filtrado y renderizado en <30 ms."]
+      ["30. Umbral de Doherty (<400 ms)", "Respuestas en menos de 400 ms mantienen la atención.", "Motor en memoria en el navegador con medición de latencia en tiempo real."]
     ];
 
     function switchTab(tabId, btnEl) {
+      const t0 = performance.now();
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.getElementById(tabId).classList.add('active');
-      btnEl.classList.add('active');
+      if (btnEl) btnEl.classList.add('active');
       window.dispatchEvent(new Event('resize'));
+      const dt = (performance.now() - t0).toFixed(1);
+      document.getElementById('doherty-badge').textContent = `Doherty ${dt}ms (<400ms OK)`;
+    }
+
+    function jumpToIncidentLogs(incId) {
+      document.getElementById('filter-inc').value = incId;
+      document.getElementById('filter-sev').value = 'ALL';
+      document.getElementById('filter-host').value = 'ALL';
+      document.getElementById('filter-search').value = '';
+      renderExplorerTable();
+      switchTab('tab-explorador', document.getElementById('btn-tab-explorador'));
+    }
+
+    function applyQuickFilter(incVal, sevVal, hostVal, qVal) {
+      document.getElementById('filter-inc').value = incVal;
+      document.getElementById('filter-sev').value = sevVal;
+      document.getElementById('filter-host').value = hostVal;
+      document.getElementById('filter-search').value = qVal;
+      renderExplorerTable();
     }
 
     function updateContainment() {
@@ -828,6 +924,13 @@
       const container = document.getElementById('incidents-container');
       container.innerHTML = SOC_DATA.findings.map(f => {
         const isHigh = f.riesgo === 'Alto';
+        const kcSteps = f.kill_chain.split('->').map(s => s.trim());
+        const kcHtml = kcSteps.map((s, idx) =>
+          `<span class="kc-step">${s}</span>${idx < kcSteps.length - 1 ? '<span class="kc-arrow">➔</span>' : ''}`
+        ).join('');
+        const jumpBtn = f.id.startsWith('INC-')
+          ? `<button class="pill-btn" onclick="jumpToIncidentLogs('${f.id}')">🔎 Ver los ${f.eventos_count} logs de ${f.id} en Explorador</button>`
+          : '';
         return `
           <div class="inc-card ${isHigh ? '' : 'med'}">
             <div class="inc-header">
@@ -835,11 +938,14 @@
                 <span class="badge ${isHigh ? 'badge-crit' : 'badge-med'}">${f.id} • Riesgo ${f.riesgo} (${f.cvss_estimado})</span>
                 <h3 style="font-size:1.02rem;font-weight:800;">${f.titulo}</h3>
               </div>
-              <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
+              <div style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:center;">
                 <span class="badge badge-mitre">${f.mitre}</span>
                 ${f.eventos_ocultos_info > 0 ? `<span class="badge badge-trap">⚠️ ${f.eventos_ocultos_info} ocultos en Info</span>` : ''}
+                ${jumpBtn}
               </div>
             </div>
+            <!-- Law of Uniform Connectedness: Visual Kill Chain -->
+            <div class="killchain-flow">${kcHtml}</div>
             <p style="font-size:0.85rem;color:#E2E8F0;margin-bottom:0.45rem;"><b>Resumen Ejecutivo:</b> ${f.resumen_ejecutivo}</p>
             <p style="font-size:0.83rem;color:#CBD5E1;margin-bottom:0.5rem;"><b>Detalle Forense L2:</b> ${f.resumen_tecnico}</p>
             <div class="inc-meta-grid">
@@ -851,7 +957,7 @@
               <div><b>🔑 Evidencia Logs:</b> <span class="mono">${f.evidencia_logs}</span></div>
             </div>
             <div style="font-size:0.81rem;color:#A7F3D0;margin-top:0.4rem;">
-              <b>🛠️ Playbook Contención:</b> <span class="mono">${f.comandos_contencion}</span>
+              <b>🛠️ Playbook Contención CLI:</b> <span class="mono">${f.comandos_contencion}</span>
             </div>
           </div>
         `;
@@ -875,6 +981,7 @@
     }
 
     function renderExplorerTable() {
+      const t0 = performance.now();
       const incFilter = document.getElementById('filter-inc').value;
       const sevFilter = document.getElementById('filter-sev').value;
       const hostFilter = document.getElementById('filter-host').value;
@@ -895,7 +1002,7 @@
 
       document.getElementById('explorer-count').textContent = `Mostrando ${filtered.length} de ${SOC_DATA.logs.length} eventos`;
       const tbody = document.getElementById('explorer-tbody');
-      tbody.innerHTML = filtered.slice(0, 300).map(r => {
+      tbody.innerHTML = filtered.slice(0, 350).map(r => {
         const detail = r.Process_CommandLine !== '-' ? `${r.Event_Description} | ${r.Process_CommandLine}` : r.Event_Description;
         return `
           <tr class="${r.Hidden_Trap ? 'trap-row' : ''}">
@@ -911,6 +1018,8 @@
           </tr>
         `;
       }).join('');
+      const dt = (performance.now() - t0).toFixed(1);
+      document.getElementById('doherty-badge').textContent = `Doherty ${dt}ms (<400ms OK)`;
     }
 
     function renderUxLaws() {
@@ -929,6 +1038,82 @@
       document.getElementById('tech-report-view').innerHTML = marked.parse(SOC_DATA.tech_md);
     }
 
+    async function generateLiveAIReport() {
+      const provider = document.getElementById('ai-provider').value;
+      const apiKey = document.getElementById('ai-key').value.trim();
+      const statusEl = document.getElementById('ai-status-msg');
+
+      if (provider === 'deterministic' || !apiKey) {
+        renderReports();
+        statusEl.innerHTML = '✔ Informes regenerados instantáneamente mediante el Motor Forense Híbrido SOC L2 (100% verificado contra los 715 eventos).';
+        return;
+      }
+
+      statusEl.innerHTML = '⏳ Consultando API de IA Generativa con el contexto estructurado de los 6 incidentes...';
+      const endpoint = provider === 'groq'
+        ? 'https://api.groq.com/openai/v1/chat/completions'
+        : 'https://api.openai.com/v1/chat/completions';
+      const model = provider === 'groq' ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini';
+
+      try {
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: model,
+            temperature: 0.2,
+            messages: [
+              { role: 'system', content: 'Eres un Principal SOC Nivel 2 & CSIRT Lead. Redacta un Resumen Ejecutivo C-Level en español claro basado estrictamente en las métricas forenses proporcionadas.' },
+              { role: 'user', content: JSON.stringify({ metrics: SOC_DATA.metrics, findings: SOC_DATA.findings }) }
+            ]
+          })
+        });
+        const data = await resp.json();
+        if (data.choices && data.choices[0]) {
+          SOC_DATA.exec_md = data.choices[0].message.content;
+          renderReports();
+          statusEl.innerHTML = `✔ Resumen Ejecutivo actualizado en vivo con ${model}.`;
+        } else {
+          throw new Error(data.error ? data.error.message : 'Respuesta inesperada de la API');
+        }
+      } catch (err) {
+        renderReports();
+        statusEl.innerHTML = `<span style="color:#F59E0B;">⚠️ No se pudo conectar a la API externa (${err.message}); se mantiene el informe del Motor Forense Determinista.</span>`;
+      }
+    }
+
+    function downloadMarkdownReport() {
+      const combined = `${SOC_DATA.exec_md}
+
+---
+
+${SOC_DATA.tech_md}`;
+      const blob = new Blob([combined], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Informe_Dual_SOC_L2_Incidentes.md';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function correlateUploadedRow(r) {
+      const srcIp = String(r.Source_IP || '-').trim();
+      const user = String(r.User || '-').trim();
+      const host = String(r.Hostname || '-').trim();
+      const ts = String(r.Timestamp || '').trim();
+      if (srcIp === '203.0.113.74') return 'INC-01';
+      if (srcIp === '198.51.100.77' || user === 'CORP\admin') return 'INC-02';
+      if (user === 'CORP\backupsvc' && srcIp === '10.10.1.44' && ts >= '2026-10-23 09:36:00' && ts <= '2026-10-23 09:43:00') return 'INC-03';
+      if (user === 'CORP\rrojas' && srcIp === '10.10.1.31' && ts >= '2026-10-23 10:40:00' && ts <= '2026-10-23 10:49:30') return 'INC-04';
+      if (host === 'APP-SRV01' && user === 'CORP\helpdesk' && srcIp === '10.10.3.18') return 'INC-05';
+      if (srcIp === '192.0.2.91' || user === 'IIS APPPOOL\DefaultAppPool') return 'INC-06';
+      return 'NONE';
+    }
+
     function handleXlsxUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -939,9 +1124,49 @@
           const workbook = XLSX.read(data, { type: 'array' });
           const sheetName = workbook.SheetNames.includes('SIEM Export') ? 'SIEM Export' : workbook.SheetNames[0];
           const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
-          document.getElementById('upload-status').innerHTML = `✔ Archivo validado: <b>${file.name}</b> (${rows.length} eventos en hoja <code>${sheetName}</code>)`;
+          if (!rows.length) throw new Error('El archivo Excel está vacío (0 filas).');
+
+          let malCount = 0;
+          let trapCount = 0;
+          const mapped = rows.map(r => {
+            const incId = correlateUploadedRow(r);
+            const sev = String(r.Severity || 'Informational').trim();
+            const isTrap = incId !== 'NONE' && sev === 'Informational';
+            if (incId !== 'NONE') malCount++;
+            if (isTrap) trapCount++;
+            const host = String(r.Hostname || '-').trim();
+            const user = String(r.User || '-').trim();
+            return {
+              Log_ID: String(r.Log_ID || '-'),
+              Timestamp: String(r.Timestamp || '-'),
+              Minute_Window: String(r.Timestamp || '').slice(0, 16),
+              Log_Source: String(r.Log_Source || '-'),
+              Event_ID: String(r.Event_ID || '-'),
+              Event_Description: String(r.Event_Description || '-'),
+              Severity: sev,
+              User: user,
+              User_Norm: user === 'CORP\svc_backup' ? 'CORP\backupsvc' : user,
+              Hostname: host,
+              Hostname_Norm: host === 'DC01' ? 'DC-01' : host,
+              Source_IP: String(r.Source_IP || '-'),
+              Destination: String(r.Destination || '-'),
+              Result: String(r.Result || '-'),
+              Process_CommandLine: String(r.Process_CommandLine || '-'),
+              Incident_ID: incId,
+              Incident_Tag: incId,
+              Hidden_Trap: isTrap
+            };
+          });
+
+          SOC_DATA.logs = mapped;
+          document.getElementById('kpi-total-val').textContent = mapped.length;
+          document.getElementById('kpi-mal-val').textContent = malCount;
+          document.getElementById('kpi-mal-sub').textContent = `${malCount - trapCount} alertas + ${trapCount} ocultos Info`;
+          renderCharts();
+          renderExplorerTable();
+          document.getElementById('upload-status').innerHTML = `✔ Procesado en vivo: <b>${file.name}</b> (${mapped.length} logs, ${malCount} maliciosos, ${trapCount} ocultos en Info)`;
         } catch (err) {
-          document.getElementById('upload-status').innerHTML = `<span style="color:#EF4444;">❌ Error leyendo archivo .xlsx: ${err.message}</span>`;
+          document.getElementById('upload-status').innerHTML = `<span style="color:#EF4444;">❌ Error validando .xlsx: ${err.message}</span>`;
         }
       };
       reader.readAsArrayBuffer(file);

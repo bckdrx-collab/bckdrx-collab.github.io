@@ -30,6 +30,12 @@ from reportlab.platypus import (
     KeepTogether,
 )
 
+from core.detection_engineering import (
+    get_lolbas_gtfobins_catalog,
+    get_sigma_rules_yaml,
+    get_yarax_nextgen_rules,
+)
+
 
 def generate_dashboard_chart_png(df: pd.DataFrame, output_path: str = "soc_l2_dashboard_summary.png") -> bytes:
     """
@@ -612,6 +618,125 @@ def build_pdf_report(
             ]
         )
         story.append(inc_block)
+
+    # =========================================================================
+    # SECCIÓN 5: INGENIERÍA DE DETECCIÓN (LOLBAS, GTFOBINS, SIGMA, YARA Y YARA-X)
+    # =========================================================================
+    story.append(Spacer(1, 4))
+    story.append(
+        Paragraph(
+            "SECCIÓN 5 — INGENIERÍA DE DETECCIÓN: LOLBAS, GTFOBINS Y REGLAS SIGMA, YARA &amp; YARA-X",
+            style_h1,
+        )
+    )
+    story.append(
+        Paragraph(
+            "Para erradicar la evasión basada en binarios nativos (<i>Living Off The Land</i>) y corregir los "
+            "12 falsos negativos registrados bajo severidad <i>Informational</i> (OBS-01), se documenta la matriz "
+            "de correlación contra <b>LOLBAS</b> (https://lolbas-project.github.io/) y <b>GTFOBins</b> "
+            "(https://gtfobins.org/), seguida de las reglas de detección para SIEM (<b>Sigma</b>) y EDR/DFIR "
+            "(<b>YARA Clásico</b> y <b>YARA-X en Rust</b>):",
+            style_body,
+        )
+    )
+
+    lolbas_rows = [
+        [
+            Paragraph("Binario / Utilidad", style_header_cell),
+            Paragraph("Catálogo", style_header_cell),
+            Paragraph("Incidente (Log_IDs)", style_header_cell),
+            Paragraph("Comando Detectado en Telemetría SIEM", style_header_cell),
+            Paragraph("MITRE ATT&amp;CK / Referencia Oficial", style_header_cell),
+        ]
+    ]
+    for item in get_lolbas_gtfobins_catalog():
+        lolbas_rows.append(
+            [
+                Paragraph(f"<b>{escape(item['binario'])}</b>", style_small_bold),
+                Paragraph(escape(item["catalogo"]), style_small),
+                Paragraph(escape(f"{item['incidente']} ({item['log_ids']})"), style_small),
+                Paragraph(escape(item["comando_detectado"]), style_small),
+                Paragraph(escape(f"{item['mitre']} | {item['lolbas_url']} | {item['gtfobins_url']}"), style_small),
+            ]
+        )
+
+    lolbas_table = Table(lolbas_rows, colWidths=[78, 66, 86, 152, 158], repeatRows=1)
+    lolbas_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#FFFFFF"), colors.HexColor("#F8FAFC")]),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 1.8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1.8),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    story.append(lolbas_table)
+    story.append(Spacer(1, 6))
+
+    sigma_primary = [
+        line for line in get_sigma_rules_yaml().split("---")[0].strip().splitlines()
+        if not line.startswith("#")
+    ]
+    sigma_excerpt = "<br/>".join(escape(line) for line in sigma_primary)
+
+    yarax_lines = [
+        line for line in get_yarax_nextgen_rules().strip().splitlines()
+        if not line.strip().startswith(("//", "/*", "*/", "==")) and line.strip()
+    ]
+    yarax_excerpt = "<br/>".join(escape(line) for line in yarax_lines)
+
+    style_rule_code = ParagraphStyle(
+        "RuleCodeCompact",
+        parent=style_code,
+        fontSize=6.6,
+        leading=8.2,
+        topPadding=2,
+        bottomPadding=2,
+    )
+
+    rules_grid = Table(
+        [
+            [
+                Paragraph("<b>Regla Sigma SIEM (.yml) — LOLBAS &amp; Informational</b>", style_header_cell),
+                Paragraph("<b>Regla YARA-X Rust (.yarx — VirusTotal Engine)</b>", style_header_cell),
+            ],
+            [
+                Paragraph(sigma_excerpt, style_rule_code),
+                Paragraph(yarax_excerpt, style_rule_code),
+            ],
+        ],
+        colWidths=[270, 270],
+    )
+    rules_grid.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+                ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#F8FAFC")),
+                ("GRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#CBD5E1")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 3.5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    story.append(
+        KeepTogether(
+            [
+                Paragraph(
+                    "ANEXO DE REGLAS DE PRODUCCIÓN — SIGMA (.YML) &amp; YARA-X NEXT-GEN RUST (.YARX)",
+                    style_h2,
+                ),
+                rules_grid,
+            ]
+        )
+    )
 
     doc.build(story, onFirstPage=_draw_header_footer, onLaterPages=_draw_header_footer)
     return buffer.getvalue()

@@ -12,6 +12,12 @@ import pandas as pd
 
 from core.parser import analyze_siem_logs
 from core.agents import generate_ai_reports, get_langchain_pipeline_metadata
+from core.detection_engineering import (
+    get_lolbas_gtfobins_catalog,
+    get_sigma_rules_yaml,
+    get_yara_classic_rules,
+    get_yarax_nextgen_rules,
+)
 from core.pdf_generator import build_pdf_report
 
 
@@ -60,6 +66,10 @@ def build_static_web_portal(
         "findings": findings,
         "hidden_events": summary_metrics["hidden_events_records"],
         "lcel": lcel_meta,
+        "lolbas_catalog": get_lolbas_gtfobins_catalog(),
+        "sigma_yaml": get_sigma_rules_yaml(),
+        "yara_classic": get_yara_classic_rules(),
+        "yarax_rust": get_yarax_nextgen_rules(),
         "exec_md": exec_md,
         "tech_md": tech_md,
         "logs": records,
@@ -732,6 +742,7 @@ def build_static_web_portal(
       <button class="mode-pill active" onclick="setWorkspaceMode('all', this)">🌊 Vista Fluida Integral</button>
       <button class="mode-pill" onclick="setWorkspaceMode('copilot', this)">🧠 JEV LangChain Copilot</button>
       <button class="mode-pill" onclick="setWorkspaceMode('incidents', this)">🎯 Radar & Kill Chain</button>
+      <button class="mode-pill" onclick="setWorkspaceMode('detection', this)">🧬 LOLBAS, GTFOBins & YARA-X/Sigma</button>
       <button class="mode-pill" onclick="setWorkspaceMode('visuals', this)">📊 Telemetría & Trampas</button>
       <button class="mode-pill" onclick="setWorkspaceMode('reports', this)">📄 Dual Report & PDF</button>
       <button class="mode-pill" onclick="setWorkspaceMode('logs', this)">🔎 Stream SIEM (715)</button>
@@ -852,10 +863,11 @@ def build_static_web_portal(
           <button class="chip-btn" onclick="runJevCopilot('¿Cuáles son los 12 eventos críticos ocultos en Informational?')">🕵️‍♂️ 12 Ocultos en Info</button>
           <button class="chip-btn" onclick="runJevCopilot('Detalla la exfiltración de datos en INC-04 e INC-02 en MiB y bytes')">📤 Exfiltración 241.57 MiB</button>
           <button class="chip-btn" onclick="runJevCopilot('Analiza el pre-ransomware en WS-023 y vssadmin delete shadows')">🚨 Pre-Ransomware VSS (INC-03)</button>
+          <button class="chip-btn" onclick="runJevCopilot('Mapea todos los binarios LOLBAS y GTFOBins abusados en los 715 eventos')">🧬 LOLBAS & GTFOBins</button>
+          <button class="chip-btn" onclick="runJevCopilot('Genera las reglas Sigma para detectar los incidentes y trampas Informational')">📡 Reglas Sigma (.yml)</button>
+          <button class="chip-btn" onclick="runJevCopilot('Dame las reglas YARA y YARA-X en Rust para cazar los artefactos maliciosos')">🦀 YARA & YARA-X (.yarx)</button>
           <button class="chip-btn" onclick="runJevCopilot('Mapea todas las tácticas y técnicas MITRE ATT&CK detectadas')">🎯 Matriz MITRE ATT&CK</button>
-          <button class="chip-btn" onclick="runJevCopilot('Lista todas las IPs externas atacantes, receptores C2 e IoCs')">🌐 IoCs & IPs Externas</button>
           <button class="chip-btn" onclick="runJevCopilot('Dame el Playbook maestro con todos los comandos PowerShell de contención')">🛡️ Playbook PowerShell</button>
-          <button class="chip-btn" onclick="runJevCopilot('Explica el problema de normalización DC-01 vs DC01 y backupsvc')">🔧 Normalización DC-01 / DC01</button>
         </div>
 
         <div class="copilot-input-row">
@@ -875,6 +887,54 @@ def build_static_web_portal(
 
         <div class="inc-selector-bar" id="incidentSelectorBar"></div>
         <div id="incidentCardsContainer"></div>
+      </section>
+
+      <!-- MÓDULO 2.5: INGENIERÍA DE DETECCIÓN (LOLBAS, GTFOBINS, SIGMA, YARA & YARA-X) -->
+      <section id="mod-detection" class="fluid-section">
+        <div class="sec-header">
+          <div class="sec-title">🧬 Ingeniería de Detección: LOLBAS · GTFOBins · Sigma · YARA · YARA-X</div>
+          <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+            <a href="https://lolbas-project.github.io/" target="_blank" rel="noopener noreferrer" class="chip-btn" style="text-decoration:none;">🌐 LOLBAS Project ↗</a>
+            <a href="https://gtfobins.org/" target="_blank" rel="noopener noreferrer" class="chip-btn" style="text-decoration:none;">🌐 GTFOBins Oficial ↗</a>
+          </div>
+        </div>
+
+        <p style="font-size:0.84rem;color:var(--text-muted);margin-bottom:0.85rem;">
+          Mapeo forense de los <strong>8 binarios nativos abusados (Living Off The Land)</strong> en los 715 eventos SIEM contra
+          <a href="https://lolbas-project.github.io/" target="_blank" style="color:var(--neon-cyan);">lolbas-project.github.io</a> y
+          <a href="https://gtfobins.org/" target="_blank" style="color:var(--neon-cyan);">gtfobins.org</a>, junto con las reglas listas para producción en
+          <strong>Sigma (<code>.yml</code>)</strong>, <strong>YARA Clásico (<code>.yar</code>)</strong> y <strong>YARA-X en Rust (<code>.yarx</code>)</strong>:
+        </p>
+
+        <div class="table-scroll" style="margin-bottom:1.15rem;">
+          <table>
+            <thead>
+              <tr>
+                <th>Binario Abusado</th>
+                <th>Catálogo</th>
+                <th>Incidente / Log_IDs</th>
+                <th>Host & Usuario</th>
+                <th>Comando Detectado en SIEM</th>
+                <th>MITRE ATT&CK</th>
+                <th>Referencias Oficiales</th>
+              </tr>
+            </thead>
+            <tbody id="lolbasTableBody"></tbody>
+          </table>
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.6rem;margin-bottom:0.75rem;">
+          <div class="copilot-chips" style="margin-bottom:0;">
+            <button class="chip-btn" onclick="switchDetectionRuleTab('sigma')">📡 Reglas Sigma (.yml)</button>
+            <button class="chip-btn" onclick="switchDetectionRuleTab('yara')">🧬 YARA Clásico (.yar)</button>
+            <button class="chip-btn" onclick="switchDetectionRuleTab('yarax')">🦀 YARA-X Next-Gen Rust (.yarx)</button>
+          </div>
+          <div style="display:flex;gap:0.5rem;">
+            <button class="chip-btn" onclick="copyActiveDetectionRule(this)">📋 Copiar Regla</button>
+            <button class="btn-chain-run" onclick="downloadActiveDetectionRule()">📥 Descargar Archivo de Reglas</button>
+          </div>
+        </div>
+        <pre id="detectionRuleCodeBox" style="background:#02050D;border:1px solid rgba(0,240,255,0.3);border-radius:12px;padding:1rem;color:#67E8F9;font-size:0.79rem;overflow-x:auto;max-height:420px;overflow-y:auto;"></pre>
       </section>
 
       <!-- MÓDULO 3: ANALÍTICA VISUAL & AUDITORÍA DE TRAMPAS INFORMATIONAL -->
@@ -1009,6 +1069,7 @@ def build_static_web_portal(
       const map = {{
         copilot: 'mod-copilot',
         incidents: 'mod-incidents',
+        detection: 'mod-detection',
         visuals: 'mod-visuals',
         reports: 'mod-reports',
         logs: 'mod-logs'
@@ -1130,6 +1191,25 @@ def build_static_web_portal(
           <h3>🔧 Auditoría de Normalización de Telemetría SIEM (OBS-01)</h3>
           <p>• <strong>Fragmentación de Hostname en Controlador de Dominio:</strong> <code>DC-01</code> (${{m.normalization.dc_hyphen_count}} eventos) vs <code>DC01</code> sin guion (${{m.normalization.dc_no_hyphen_count}} eventos). Unificados automáticamente bajo <code>Hostname_Norm = DC-01</code>.</p>
           <p>• <strong>Dualidad de Cuentas de Servicio:</strong> <code>CORP\\backupsvc</code> (${{m.normalization.backupsvc_count}} eventos, comprometida en INC-03) vs <code>CORP\\svc_backup</code> (${{m.normalization.svc_backup_count}} eventos).</p>
+        `;
+      }} else if (q.includes('lolbas') || q.includes('gtfobins') || q.includes('gtfo')) {{
+        const items = SOC_DATA.lolbas_catalog.map(c =>
+          `<li><strong><code>${{escapeHtml(c.binario)}}</code></strong> [${{escapeHtml(c.catalogo)}} · <code>${{escapeHtml(c.incidente)}}</code> · <code>${{escapeHtml(c.log_ids)}}</code>]: <code>${{escapeHtml(c.comando_detectado)}}</code> — <a href="${{escapeHtml(c.lolbas_url)}}" target="_blank" style="color:#00F0FF;">LOLBAS ↗</a> | <a href="${{escapeHtml(c.gtfobins_url)}}" target="_blank" style="color:#C4B5FD;">GTFOBins ↗</a></li>`
+        ).join('');
+        html = `
+          <h3>🧬 Auditoría Forense LOLBAS & GTFOBins en los 715 Eventos SIEM</h3>
+          <p>Se identificaron 8 binarios del sistema abusados para ejecución, compresión de exfiltración, persistencia y sabotaje de copias de sombra:</p>
+          <ul style="margin:0.5rem 0 0.5rem 1.2rem;">${{items}}</ul>
+        `;
+      }} else if (q.includes('sigma')) {{
+        html = `
+          <h3>📡 Reglas Sigma de Producción (.yml) — Detección SIEM & Trampas Informational</h3>
+          <pre>${{escapeHtml(SOC_DATA.sigma_yaml)}}</pre>
+        `;
+      }} else if (q.includes('yara')) {{
+        html = `
+          <h3>🦀 Reglas YARA Clásico (.yar) & YARA-X Next-Gen en Rust (.yarx)</h3>
+          <pre>${{escapeHtml(SOC_DATA.yarax_rust + "\\n\\n" + SOC_DATA.yara_classic)}}</pre>
         `;
       }} else if (q.includes('playbook') || q.includes('powershell') || q.includes('comando')) {{
         const allCmds = findings.slice(0, 6).map(f => `# [${{f.id}}] ${{f.titulo}}\n${{f.comandos_contencion}}`).join('\n\n');
@@ -1410,11 +1490,63 @@ def build_static_web_portal(
       reader.readAsArrayBuffer(file);
     }});
 
+    let activeDetectionTab = 'sigma';
+
+    function renderDetectionEngineering() {{
+      const tbody = document.getElementById('lolbasTableBody');
+      tbody.innerHTML = SOC_DATA.lolbas_catalog.map(c => `
+        <tr>
+          <td class="mono" style="color:var(--neon-cyan);font-weight:700;">${{escapeHtml(c.binario)}}</td>
+          <td><span class="h-badge hb-purple">${{escapeHtml(c.catalogo)}}</span></td>
+          <td class="mono"><strong>${{escapeHtml(c.incidente)}}</strong> (${{escapeHtml(c.log_ids)}})</td>
+          <td class="mono">${{escapeHtml(c.host)}}</td>
+          <td class="mono" style="color:#FDE68A;">${{escapeHtml(c.comando_detectado)}}</td>
+          <td class="mono">${{escapeHtml(c.mitre)}}</td>
+          <td>
+            <a href="${{escapeHtml(c.lolbas_url)}}" target="_blank" rel="noopener noreferrer" style="color:#00F0FF;margin-right:0.5rem;font-weight:600;">LOLBAS ↗</a>
+            <a href="${{escapeHtml(c.gtfobins_url)}}" target="_blank" rel="noopener noreferrer" style="color:#C4B5FD;font-weight:600;">GTFOBins ↗</a>
+          </td>
+        </tr>
+      `).join('');
+      switchDetectionRuleTab('sigma');
+    }}
+
+    function switchDetectionRuleTab(tab) {{
+      activeDetectionTab = tab;
+      const box = document.getElementById('detectionRuleCodeBox');
+      if (tab === 'sigma') box.textContent = SOC_DATA.sigma_yaml;
+      else if (tab === 'yara') box.textContent = SOC_DATA.yara_classic;
+      else box.textContent = SOC_DATA.yarax_rust;
+    }}
+
+    function copyActiveDetectionRule(btn) {{
+      const box = document.getElementById('detectionRuleCodeBox');
+      navigator.clipboard.writeText(box.textContent || '');
+      const prev = btn.textContent;
+      btn.textContent = '✓ Regla Copiada';
+      setTimeout(() => btn.textContent = prev, 1500);
+    }}
+
+    function downloadActiveDetectionRule() {{
+      const box = document.getElementById('detectionRuleCodeBox');
+      const fname = activeDetectionTab === 'sigma'
+        ? 'soc_l2_sigma_rules.yml'
+        : (activeDetectionTab === 'yara' ? 'soc_l2_yara_classic.yar' : 'soc_l2_yarax_rust.yarx');
+      const blob = new Blob([box.textContent || ''], {{ type: 'text/plain;charset=utf-8' }});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fname;
+      a.click();
+      URL.revokeObjectURL(url);
+    }}
+
     // Inicialización completa del sistema JEV Cyber Command
     window.addEventListener('DOMContentLoaded', () => {{
       renderLcelNodes();
       renderSoarChecklist();
       renderIncidents('ALL');
+      renderDetectionEngineering();
       renderCharts();
       renderHiddenTrapsTable();
       document.getElementById('execReportBox').value = SOC_DATA.exec_md;

@@ -22,6 +22,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda, RunnableParallel
 
+from core.detection_engineering import (
+    get_lolbas_gtfobins_catalog,
+    get_sigma_rules_yaml,
+    get_yara_classic_rules,
+    get_yarax_nextgen_rules,
+)
+
 
 def get_available_ollama_models(base_url: str = "http://localhost:11434") -> List[str]:
     """Consulta los modelos instalados localmente en Ollama si el servicio está activo."""
@@ -61,10 +68,16 @@ def get_langchain_pipeline_metadata(provider: str = "LangChain LCEL Forense", mo
                 "desc": "Bifurca la síntesis en dos cadenas simultáneas: C-Level Executive Chain y DFIR Technical Chain.",
             },
             {
+                "id": "node_detection",
+                "name": "DetectionRuleGenerator",
+                "type": "LOLBAS + GTFOBins + Sigma/YARA-X",
+                "desc": "Correlaciona binarios LOLBAS/GTFOBins abusados y sintetiza reglas Sigma (.yml), YARA (.yar) y YARA-X (.yarx).",
+            },
+            {
                 "id": "node_copilot",
                 "name": "JEVCyberCopilotChain",
                 "type": "ChatPromptTemplate | StrOutputParser",
-                "desc": "Agente interactivo con memoria contextual de los 715 registros, IoCs y Playbooks PowerShell.",
+                "desc": "Agente interactivo con memoria contextual de los 715 registros, IoCs, LOLBAS, GTFOBins y reglas YARA-X/Sigma.",
             },
         ],
         "lcel_expression": (
@@ -158,6 +171,25 @@ def build_deterministic_reports(
             f"  * Plan de Contención y Erradicación:\n    {f['remediacion'].replace(chr(10), chr(10) + '    ')}\n"
             f"  * Comandos de Respuesta Recomendados (Playbook CLI):\n    {f['comandos_contencion']}"
         )
+
+    lolbas_items = get_lolbas_gtfobins_catalog()
+    lolbas_lines = [
+        "3. INGENIERÍA DE DETECCIÓN: CORRELACIÓN LOLBAS / GTFOBINS Y REGLAS SIGMA, YARA & YARA-X\n"
+        "- Mapeo de Binarios Nativos Abusados (Living Off The Land — LOLBAS https://lolbas-project.github.io/ & GTFOBins https://gtfobins.org/):"
+    ]
+    for item in lolbas_items:
+        lolbas_lines.append(
+            f"  * {item['binario']} [{item['catalogo']}] en {item['incidente']} ({item['log_ids']}): "
+            f"Comando '{item['comando_detectado']}' -> {item['funcion_abusada']} | Ref: {item['lolbas_url']} | {item['gtfobins_url']}"
+        )
+    lolbas_lines.append(
+        "- Cobertura de Reglas de Detección Desplegadas:\n"
+        "  * Reglas Sigma (.yml): Correlación de EventID 4688 para vssadmin delete shadows (INC-03), staging con tar.exe/7z.exe (INC-02/INC-04), "
+        "persistencia wuhelper.exe (INC-05), RCE DefaultAppPool cmd.exe /c whoami (INC-06) y alerta de EventID 4624/4672 post-Password Spraying (INC-01).\n"
+        "  * Reglas YARA Clásico (.yar) & YARA-X Next-Gen Rust (.yarx): Caza en disco y memoria de la Webshell '/uploads/test.aspx', "
+        "binario PE 'C:\\ProgramData\\wuhelper.exe', paquetes 'C:\\Temp\\finance.zip' y 'C:\\Users\\Public\\archive.7z', y endpoints C2 (198.51.100.88:443 / 203.0.113.88:443)."
+    )
+    tech_blocks.append("\n".join(lolbas_lines))
 
     tech_report = "\n\n".join(tech_blocks)
     return exec_report, tech_report
@@ -415,6 +447,46 @@ def _deterministic_copilot_router(
     if any(k in q for k in ["playbook", "comando", "contenci", "remedi", "powershell", "aislar"]):
         cmds = "\n\n".join(f"# [{f['id']}] {f['titulo']}\n{f['comandos_contencion']}" for f in findings[:6])
         return f"### 🛡️ Playbook Maestro de Contención CLI (SOC Nivel 2)\n```powershell\n{cmds}\n```"
+
+    if any(k in q for k in ["lolbas", "gtfobins", "gtfo", "living off the land", "binario nativo"]):
+        catalog = get_lolbas_gtfobins_catalog()
+        rows = "\n".join(
+            f"- **`{c['binario']}`** (`{c['catalogo']}` · `{c['incidente']}` · `{c['log_ids']}` en `{c['host']}`):\n"
+            f"  - **Comando:** `{c['comando_detectado']}`\n"
+            f"  - **Función Abusada:** {c['funcion_abusada']} (`{c['mitre']}`)\n"
+            f"  - **Referencias Oficiales:** [LOLBAS Project]({c['lolbas_url']}) · [GTFOBins]({c['gtfobins_url']})"
+            for c in catalog
+        )
+        return (
+            "### 🧬 Auditoría Forense LOLBAS & GTFOBins en los 715 Eventos SIEM\n"
+            "Los atacantes abusaron de **8 utilidades nativas del sistema** documentadas en "
+            "[LOLBAS Project](https://lolbas-project.github.io/) y [GTFOBins](https://gtfobins.org/) para evadir controles:\n\n"
+            f"{rows}"
+        )
+
+    if any(k in q for k in ["yara-x", "yarax", "rust"]):
+        return (
+            "### 🦀 Regla YARA-X Next-Gen (`.yarx` — Motor Rust de VirusTotal)\n"
+            "Regla optimizada para `yr scan` con validación del módulo `pe` y expresiones regulares sobre los artefactos de `INC-02` a `INC-06`:\n"
+            f"```yara\n{get_yarax_nextgen_rules()}\n```"
+        )
+
+    if "yara" in q:
+        return (
+            "### 🧬 Reglas YARA Clásicas (`.yar`) y YARA-X (`.yarx`) para DFIR Nivel 2\n"
+            "**1. YARA Clásico (`.yar` — Memoria y Disco):**\n"
+            f"```yara\n{get_yara_classic_rules()}\n```\n\n"
+            "**2. YARA-X Next-Gen (`.yarx` — Motor Rust de VirusTotal):**\n"
+            f"```yara\n{get_yarax_nextgen_rules()}\n```"
+        )
+
+    if any(k in q for k in ["sigma", "regla", "deteccion", "detección", "siem rule"]):
+        return (
+            "### 📡 Reglas Sigma de Producción (`.yml`) — Corrección de Falsos Negativos `Informational`\n"
+            "Estas reglas Sigma detectan el abuso de LOLBAS/GTFOBins (`vssadmin`, `tar.exe`, `7z.exe`, `wuhelper.exe`, `cmd.exe /c whoami`) "
+            "y correlacionan el login exitoso post-Password Spraying (`EVT-00123`, `EVT-00126`):\n"
+            f"```yaml\n{get_sigma_rules_yaml()}\n```"
+        )
 
     if any(k in q for k in ["dc-01", "dc01", "normaliz", "calidad", "svc_backup"]):
         norm = summary_metrics["normalization"]

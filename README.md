@@ -10,8 +10,17 @@ Proyecto final desarrollado para el **Bootcamp de Analista SOC Nivel 2 (Dojo Com
 ### 🌐 Enlaces Publicados en Vivo (`github.io`)
 - **Portal Web Interactivo Fluido (JEV Cyber Command OS):** [https://bckdrx-collab.github.io/soc-l2-incident-response/](https://bckdrx-collab.github.io/soc-l2-incident-response/)
 - **Portal Principal de Usuario (`bckdrx-collab.github.io`):** [https://bckdrx-collab.github.io/](https://bckdrx-collab.github.io/)
-- **Descarga Directa del Informe PDF Oficial (7 Páginas):** [Informe_Final_SOC_L2_Incidentes.pdf](https://bckdrx-collab.github.io/soc-l2-incident-response/Informe_Final_SOC_L2_Incidentes.pdf)
+- **Descarga Directa del Informe PDF Oficial (8 Páginas):** [Informe_Final_SOC_L2_Incidentes.pdf](https://bckdrx-collab.github.io/soc-l2-incident-response/Informe_Final_SOC_L2_Incidentes.pdf)
 - **Repositorio de Código Fuente:** [https://github.com/bckdrx-collab/soc-l2-incident-response](https://github.com/bckdrx-collab/soc-l2-incident-response)
+
+---
+
+## 🧬 Laboratorio de Ingeniería de Detección (`core/detection_engineering.py`)
+Integración completa de inteligencia de binarios nativos (*Living Off The Land*) y generación de reglas listas para producción:
+- **🔗 [LOLBAS Project](https://lolbas-project.github.io/):** Mapeo directo de los binarios nativos de Windows abusados en los incidentes (`vssadmin.exe` en `INC-03`, `tar.exe` en `INC-02`, `powershell.exe` en `INC-02`/`INC-03`, `schtasks.exe` y `sc.exe` en `INC-05`, `net.exe` en `INC-02`, `cmd.exe` en `INC-06`).
+- **🔗 [GTFOBins](https://gtfobins.org/):** Correlación multi-plataforma Unix/Linux de utilidades equivalentes (`tar`, `7z`, `crontab`, `systemctl`, `sh`) para cobertura híbrida.
+- **🛡️ Reglas Sigma (`.yml`):** Reglas universales SIEM para detectar abuso de LOLBAS (`EventID 4688`) y correlación temporal de Password Spraying (`INC-01`), corrigiendo los 12 falsos negativos en `Informational` (`OBS-01`).
+- **🧬 YARA Clásico (`.yar`) & YARA-X Next-Gen en Rust (`.yarx`):** Firmas forenses compatibles con `yara64.exe` y el nuevo motor `yr scan` de VirusTotal en Rust (`import "pe"`) para cazar la Webshell ASPX (`/uploads/test.aspx`), el binario persistente `C:\ProgramData\wuhelper.exe` y los artefactos de staging (`finance.zip`, `archive.7z`).
 
 ---
 
@@ -45,7 +54,8 @@ BOOTCAMP SOC L2/
 │   ├── __init__.py
 │   ├── parser.py                                       # Ingesta Excel, validación, normalización y correlación L2
 │   ├── agents.py                                       # Orquestador LangChain LCEL + Copiloto Interactivo JEV
-│   └── pdf_generator.py                                # Renderizador PDF corporativo de 7 páginas (ReportLab)
+│   ├── detection_engineering.py                        # Catálogo LOLBAS, GTFOBins y generador Sigma, YARA & YARA-X
+│   └── pdf_generator.py                                # Renderizador PDF corporativo de 8 páginas (ReportLab)
 ├── SOC_L2_Logs_Ampliados_Multiples_Incidentes.xlsx     # Dataset oficial del SIEM (715 eventos)
 ├── Informe_Final_SOC_L2_Incidentes.pdf                 # Entregable oficial en PDF (Ejecutivo + Técnico)
 ├── soc_l2_dashboard_summary.png                        # Panel gráfico forense de alta resolución

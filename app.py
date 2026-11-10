@@ -34,6 +34,12 @@ from core.agents import (
     get_langchain_pipeline_metadata,
     ask_jev_copilot,
 )
+from core.detection_engineering import (
+    get_lolbas_gtfobins_catalog,
+    get_sigma_rules_yaml,
+    get_yara_classic_rules,
+    get_yarax_nextgen_rules,
+)
 from core.pdf_generator import build_pdf_report
 
 st.set_page_config(
@@ -524,6 +530,7 @@ workspace_mode = st.segmented_control(
         "🌊 Vista Fluida Integral (Todo en Pantalla)",
         "🧠 JEV LangChain Copilot & Grafo LCEL",
         "🎯 Radar de Incidentes & Kill Chain",
+        "🧬 LOLBAS, GTFOBins & Reglas (Sigma / YARA / YARA-X)",
         "📊 Analítica Visual & Trampas 'Informational'",
         "📄 Estudio de Informes (C-Level / DFIR) & PDF",
         "🔎 Telemetría SIEM en Vivo (715 Logs)",
@@ -561,18 +568,20 @@ if show_all or workspace_mode == "🧠 JEV LangChain Copilot & Grafo LCEL":
         st.markdown(f'<div class="lcel-flow-grid">{nodes_html}</div>', unsafe_allow_html=True)
 
         # Botones rápidos de consulta táctica
-        q_cols = st.columns(6)
+        q_cols = st.columns(4)
         quick_prompts = [
             ("🕵️‍♂️ 12 Ocultos en Info", "¿Cuáles son los 12 eventos críticos ocultos en severidad Informational?"),
             ("📤 Exfiltración 241 MiB", "Detalla la exfiltración de datos en INC-04 e INC-02 y cuántos bytes salieron"),
             ("🚨 Pre-Ransomware VSS", "Analiza la actividad pre-ransomware en WS-023 y el comando vssadmin"),
+            ("🧬 LOLBAS & GTFOBins", "Mapea todos los binarios LOLBAS y GTFOBins abusados en los 715 eventos"),
+            ("📡 Reglas Sigma (.yml)", "Genera las reglas Sigma para detectar los incidentes y corregir los falsos negativos Informational"),
+            ("🦀 YARA & YARA-X (.yarx)", "Dame las reglas YARA clásico y YARA-X en Rust para cazar los artefactos maliciosos"),
             ("🎯 Matriz MITRE ATT&CK", "Mapea todas las tácticas y técnicas MITRE ATT&CK detectadas"),
-            ("🌐 IoCs & IPs Externas", "Lista todos los indicadores de compromiso, IPs externas y artefactos"),
             ("🛡️ Playbook PowerShell", "Dame el Playbook maestro con todos los comandos PowerShell de contención"),
         ]
         triggered_prompt = None
         for idx, (btn_label, prompt_text) in enumerate(quick_prompts):
-            if q_cols[idx].button(btn_label, key=f"qp_{idx}", width="stretch"):
+            if q_cols[idx % 4].button(btn_label, key=f"qp_{idx}", width="stretch"):
                 triggered_prompt = prompt_text
 
         custom_q_col, custom_btn_col = st.columns([4.2, 1.0], vertical_alignment="bottom")
@@ -698,6 +707,100 @@ if show_all or workspace_mode == "🎯 Radar de Incidentes & Kill Chain":
 
                 st.info(f"**🛡️ Plan de Contención y Remediación:**\n{f['remediacion']}")
                 st.code(f["comandos_contencion"], language="powershell")
+
+# =====================================================================
+# MÓDULO 2.5: INGENIERÍA DE DETECCIÓN (LOLBAS, GTFOBINS, SIGMA, YARA & YARA-X)
+# =====================================================================
+if show_all or workspace_mode == "🧬 LOLBAS, GTFOBins & Reglas (Sigma / YARA / YARA-X)":
+    with st.container(border=True):
+        det_h1, det_h2, det_h3 = st.columns([2.2, 1.0, 1.0], vertical_alignment="center")
+        with det_h1:
+            st.markdown("### 🧬 Laboratorio de Ingeniería de Detección: LOLBAS · GTFOBins · Sigma · YARA · YARA-X")
+            st.caption(
+                "Mapeo forense de binarios nativos abusados (Living Off The Land) en los 715 eventos y reglas listas para SIEM/EDR."
+            )
+        with det_h2:
+            st.link_button(
+                "🌐 Abrir LOLBAS Project Oficial",
+                "https://lolbas-project.github.io/",
+                width="stretch",
+            )
+        with det_h3:
+            st.link_button(
+                "🌐 Abrir GTFOBins Oficial",
+                "https://gtfobins.org/",
+                width="stretch",
+            )
+
+        lolbas_df = pd.DataFrame(get_lolbas_gtfobins_catalog())
+        st.dataframe(
+            lolbas_df,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "binario": st.column_config.TextColumn("Binario Abusado"),
+                "catalogo": st.column_config.TextColumn("Catálogo"),
+                "incidente": st.column_config.TextColumn("Incidente"),
+                "log_ids": st.column_config.TextColumn("Evidencia (Log_IDs)"),
+                "host": st.column_config.TextColumn("Host / Cuenta"),
+                "comando_detectado": st.column_config.TextColumn("Comando Exacto en SIEM"),
+                "funcion_abusada": st.column_config.TextColumn("Función Abusada"),
+                "mitre": st.column_config.TextColumn("MITRE ATT&CK"),
+                "lolbas_url": st.column_config.LinkColumn("Referencia LOLBAS", display_text="LOLBAS ↗"),
+                "gtfobins_url": st.column_config.LinkColumn("Referencia GTFOBins", display_text="GTFOBins ↗"),
+                "riesgo": st.column_config.TextColumn("Riesgo"),
+            },
+        )
+
+        rule_view = st.segmented_control(
+            "🛡️ Seleccionar Motor de Reglas de Detección:",
+            options=[
+                "📡 Reglas Sigma (.yml — Correlación SIEM & Trampas Informational)",
+                "🧬 Reglas YARA Clásico (.yar — Escaneo Memoria/Disco)",
+                "🦀 Reglas YARA-X Next-Gen (.yarx — Motor Rust de VirusTotal)",
+            ],
+            default="📡 Reglas Sigma (.yml — Correlación SIEM & Trampas Informational)",
+        )
+
+        sigma_code = get_sigma_rules_yaml()
+        yara_code = get_yara_classic_rules()
+        yarax_code = get_yarax_nextgen_rules()
+
+        dl_c1, dl_c2, dl_c3 = st.columns(3)
+        with dl_c1:
+            st.download_button(
+                "📥 Descargar Reglas Sigma (.yml)",
+                data=sigma_code.encode("utf-8"),
+                file_name="soc_l2_sigma_rules.yml",
+                mime="text/yaml",
+                width="stretch",
+                key="dl_sigma_btn",
+            )
+        with dl_c2:
+            st.download_button(
+                "📥 Descargar Reglas YARA (.yar)",
+                data=yara_code.encode("utf-8"),
+                file_name="soc_l2_yara_classic.yar",
+                mime="text/plain",
+                width="stretch",
+                key="dl_yara_btn",
+            )
+        with dl_c3:
+            st.download_button(
+                "📥 Descargar Reglas YARA-X (.yarx)",
+                data=yarax_code.encode("utf-8"),
+                file_name="soc_l2_yarax_rust.yarx",
+                mime="text/plain",
+                width="stretch",
+                key="dl_yarax_btn",
+            )
+
+        if rule_view and rule_view.startswith("📡"):
+            st.code(sigma_code, language="yaml")
+        elif rule_view and rule_view.startswith("🧬"):
+            st.code(yara_code, language="c")
+        else:
+            st.code(yarax_code, language="rust")
 
 # =====================================================================
 # MÓDULO 3: ANALÍTICA VISUAL FLUIDA & AUDITORÍA DE EVASIÓN SIEM

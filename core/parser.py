@@ -593,7 +593,6 @@ def analyze_siem_logs(raw_df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict[str
 
     # Detectar todas las IPs externas involucradas de forma agnóstica
     df["Involves_External_IP"] = df["Source_IP"].apply(is_external_ip) | df["Destination"].apply(is_external_ip)
-    df["External_IP"] = df["Involves_External_IP"]
 
     obs_id = "OBS-01"
     obs_title = "Brechas de Visibilidad SIEM, Eventos Críticos en 'Informational' y Falta de Normalización"
@@ -672,7 +671,7 @@ def analyze_siem_logs(raw_df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict[str
         "native_non_info_alerts": int((df["Severity"] != "Informational").sum()),
         "correlated_malicious_events": int((df["Incident_ID"] != "NONE").sum()),
         "hidden_info_critical_events": hidden_count,
-        "external_ip_events_count": int(df["External_IP"].sum()),
+        "external_ip_events_count": int(df["External_IP"].sum() if "External_IP" in df.columns else df["Involves_External_IP"].sum()),
         "critical_incidents_count": sum(1 for f in findings if f["riesgo"] == "Alto"),
         "medium_findings_count": sum(1 for f in findings if f["riesgo"] == "Medio"),
         "observations_count": sum(1 for f in findings if f["riesgo"] == "Medio"),

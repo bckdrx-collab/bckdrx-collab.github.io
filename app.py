@@ -41,6 +41,7 @@ from core.detection_engineering import (
     get_yarax_nextgen_rules,
 )
 from core.pdf_generator import build_pdf_report
+from core.graph_builder import build_siem_attack_graph_data, create_attack_graph_figure
 
 st.set_page_config(
     page_title="JEV // SOC L2 Cyber Command — LangChain SIEM Analyzer",
@@ -447,6 +448,7 @@ elapsed_ms = (time.perf_counter() - t0) * 1000.0
 malicious_pct = (summary_metrics["correlated_malicious_events"] / max(1, summary_metrics["total_logs"])) * 100.0
 done_inc = sum(1 for v in st.session_state["contained_incidents"].values() if v)
 lcel_meta = get_langchain_pipeline_metadata(provider, model_name)
+G_attack, graph_meta = build_siem_attack_graph_data(df, findings)
 
 # =====================================================================
 # CABECERA FLUIDA JEV CYBER COMMAND + EXPORTACIÓN PDF 1-CLIC
@@ -508,7 +510,7 @@ st.markdown(
         <div class="jev-bento-card">
             <div class="jev-bento-label">03 // INCIDENTES CONFIRMADOS</div>
             <div class="jev-bento-value">{summary_metrics['critical_incidents_count']} <span style="font-size:0.95rem;color:#F43F5E;">Riesgo Alto</span></div>
-            <div class="jev-bento-sub" style="color:#FBBF24;">+ {summary_metrics['medium_findings_count']} Brecha de Visibilidad (OBS-01)</div>
+            <div class="jev-bento-sub" style="color:#FBBF24;">+ {summary_metrics.get('medium_findings_count', summary_metrics.get('observations_count', 1))} Brecha de Visibilidad (OBS-01)</div>
         </div>
         <div class="jev-bento-card">
             <div class="jev-bento-label">04 // EXFILTRACIÓN CUANTIFICADA</div>
@@ -559,17 +561,44 @@ if show_all or workspace_mode == "🧠 JEV LangChain Copilot & Grafo LCEL":
             with st.expander("🔗 Ver Arquitectura del Grafo LangChain LCEL", expanded=False):
                 st.code(lcel_meta["lcel_expression"], language="python")
 
-        nodes_html = "".join(
-            f"""
-            <div class="lcel-node">
-                <div class="lcel-node-type">{n['type']}</div>
-                <div class="lcel-node-title">⚡ {n['name']}</div>
-                <div class="lcel-node-desc">{n['desc']}</div>
-            </div>
-            """
-            for n in lcel_meta["nodes"]
-        )
-        st.markdown(f'<div class="lcel-flow-grid">{nodes_html}</div>', unsafe_allow_html=True)
+        tabs_graph = st.tabs([
+            f"🕸️ Grafo Forense de Ataque & Relaciones ({graph_meta['total_nodes']} Nodos · {graph_meta['total_edges']} Aristas)",
+            "🔗 Pipeline de Orquestación LangChain (LCEL Flow)",
+        ])
+
+        with tabs_graph[0]:
+            g_col1, g_col2, g_col3 = st.columns([1.6, 2.2, 1.2], vertical_alignment="center")
+            with g_col1:
+                st.caption(f"**Topología:** `{graph_meta['attackers_count']}` Atacantes/C2 · `{graph_meta['hosts_count']}` Hosts · `{graph_meta['users_count']}` Cuentas · `{graph_meta['incidents_count']}` Vectores")
+            with g_col2:
+                inc_filter_options = ["ALL"] + [f["id"] for f in findings]
+                selected_g_inc = st.selectbox(
+                    "🎯 Filtrar Subgrafo por Incidente:",
+                    options=inc_filter_options,
+                    format_func=lambda x: "📋 Toda la Red de Ataque (Global)" if x == "ALL" else f"🎯 Subgrafo {x}",
+                    key="attack_graph_inc_filter",
+                    label_visibility="collapsed",
+                )
+            with g_col3:
+                st.caption("🔍 Usa zoom, paneo y hover para inspeccionar aristas y nodos.")
+
+            fig_attack = create_attack_graph_figure(G_attack, filter_incident=selected_g_inc)
+            st.plotly_chart(fig_attack, width="stretch")
+
+        with tabs_graph[1]:
+            nodes_html = "".join(
+                f"""
+                <div class="lcel-node">
+                    <div class="lcel-node-type">{n['type']}</div>
+                    <div class="lcel-node-title">⚡ {n['name']}</div>
+                    <div class="lcel-node-desc">{n['desc']}</div>
+                </div>
+                """
+                for n in lcel_meta["nodes"]
+            )
+            st.markdown(f'<div class="lcel-flow-grid">{nodes_html}</div>', unsafe_allow_html=True)
+            with st.expander("🔗 Ver Arquitectura del Grafo LangChain LCEL (Código Runnable)", expanded=False):
+                st.code(lcel_meta["lcel_expression"], language="python")
 
         # Botones rápidos de consulta táctica
         q_cols = st.columns(4)
@@ -1036,7 +1065,7 @@ if show_all or workspace_mode == "🔎 Telemetría SIEM en Vivo (715 Logs)":
         st.markdown("### 🔎 Stream Forense de Telemetría SIEM (715 Eventos)")
         opt_malicious = f"🔴 Maliciosos Correlacionados ({summary_metrics['correlated_malicious_events']})"
         opt_hidden = f"🕵️‍♂️ Críticos Ocultos en 'Info' ({summary_metrics['hidden_info_critical_events']})"
-        opt_ext_ip = f"🌐 Tráfico con IPs Externas ({summary_metrics['external_ip_events_count']})"
+        opt_ext_ip = f"🌐 Tráfico con IPs Externas ({summary_metrics.get('external_ip_events_count', int(df['External_IP'].sum() if 'External_IP' in df.columns else 0))})"
         opt_all = f"📋 Dataset Completo ({summary_metrics['total_logs']})"
 
         f_top1, f_top2, f_top3 = st.columns([2.3, 1.1, 1.2], vertical_alignment="center")

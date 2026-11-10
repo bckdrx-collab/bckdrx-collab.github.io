@@ -19,6 +19,7 @@ from core.detection_engineering import (
     get_yarax_nextgen_rules,
 )
 from core.pdf_generator import build_pdf_report
+from core.graph_builder import get_attack_graph_json_export
 
 
 def build_static_web_portal(
@@ -61,6 +62,7 @@ def build_static_web_portal(
         )
 
     lcel_meta = get_langchain_pipeline_metadata()
+    attack_graph_data = get_attack_graph_json_export(df, findings)
     payload = {
         "metrics": summary_metrics,
         "findings": findings,
@@ -73,6 +75,7 @@ def build_static_web_portal(
         "exec_md": exec_md,
         "tech_md": tech_md,
         "logs": records,
+        "attack_graph": attack_graph_data,
     }
     payload_json = json.dumps(payload, ensure_ascii=False)
 
@@ -806,6 +809,7 @@ def build_static_web_portal(
     <nav class="mode-pills" aria-label="Selector de espacio de trabajo fluido">
       <button class="mode-pill active" onclick="setWorkspaceMode('all', this)">🌊 Vista Fluida Integral</button>
       <button class="mode-pill" onclick="setWorkspaceMode('copilot', this)">🧠 JEV LangChain Copilot</button>
+      <button class="mode-pill" onclick="setWorkspaceMode('graph', this)">🕸️ Grafo de Ataque</button>
       <button class="mode-pill" onclick="setWorkspaceMode('incidents', this)">🎯 Radar & Kill Chain</button>
       <button class="mode-pill" onclick="setWorkspaceMode('detection', this)">🧬 LOLBAS, GTFOBins & YARA-X/Sigma</button>
       <button class="mode-pill" onclick="setWorkspaceMode('visuals', this)">📊 Telemetría & Trampas</button>
@@ -944,6 +948,24 @@ def build_static_web_portal(
         </div>
 
         <div id="copilotResponseContainer" class="copilot-response-box"></div>
+      </section>
+
+      <!-- MÓDULO 1.5: GRAFO FORENSE INTERACTIVO DE ATAQUE Y TELEMETRÍA (SOC L2) -->
+      <section id="mod-attack-graph" class="fluid-section">
+        <div class="sec-header">
+          <div class="sec-title">🕸️ Grafo Forense de Ataque y Correlación de Telemetría (SOC L2)</div>
+          <span class="mono" style="font-size:0.75rem;color:var(--neon-cyan);">Network Topology & Threat Matrix (NetworkX / Plotly)</span>
+        </div>
+        <div style="display:flex;gap:0.85rem;align-items:center;margin-bottom:0.85rem;flex-wrap:wrap;justify-content:space-between;">
+          <div style="display:flex;gap:0.6rem;align-items:center;">
+            <span style="font-size:0.8rem;color:#94A3B8;">Filtrar Subgrafo:</span>
+            <select id="graphIncidentFilter" class="dock-select" style="max-width:280px;" onchange="renderAttackGraph(this.value)">
+              <option value="ALL">📋 Toda la Red de Ataque (Global)</option>
+            </select>
+          </div>
+          <div id="graphStatsBadge" style="font-size:0.75rem;color:var(--neon-emerald);font-family:'JetBrains Mono',monospace;font-weight:600;"></div>
+        </div>
+        <div id="chartAttackGraph" style="width:100%;height:560px;background:rgba(10,15,29,0.85);border-radius:12px;border:1px solid rgba(139,92,246,0.3);"></div>
       </section>
 
       <!-- MÓDULO 2: RADAR DE INCIDENTES, KILL CHAIN Y PLAYBOOKS -->
@@ -1136,6 +1158,7 @@ def build_static_web_portal(
       if (btnEl) btnEl.classList.add('active');
       const map = {{
         copilot: 'mod-copilot',
+        graph: 'mod-attack-graph',
         incidents: 'mod-incidents',
         detection: 'mod-detection',
         visuals: 'mod-visuals',
@@ -1484,6 +1507,135 @@ def build_static_web_portal(
         margin: {{ l: 115, r: 20, t: 42, b: 40 }},
         title: {{ text: '🌐 IPs de Origen en Incidentes (Externas y Pivotes)', font: {{ size: 13 }} }}
       }}, {{ responsive: true, displayModeBar: false }});
+    }}
+
+    function renderAttackGraph(filterInc) {{
+      filterInc = filterInc || 'ALL';
+      const graphData = SOC_DATA.attack_graph;
+      if (!graphData || !graphData.nodes || !graphData.nodes.length) return;
+
+      const nodes = graphData.nodes;
+      const edges = graphData.edges;
+
+      let visibleNodeIds = new Set();
+      if (filterInc === 'ALL') {{
+        visibleNodeIds = new Set(nodes.map(n => n.id));
+      }} else {{
+        visibleNodeIds.add(filterInc);
+        edges.forEach(e => {{
+          if (e.source === filterInc) visibleNodeIds.add(e.target);
+          if (e.target === filterInc) visibleNodeIds.add(e.source);
+        }});
+      }}
+
+      const activeNodes = nodes.filter(n => visibleNodeIds.has(n.id));
+      const activeEdges = edges.filter(e => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target));
+      const nodePosMap = {{}};
+      activeNodes.forEach(n => {{ nodePosMap[n.id] = {{ x: n.x, y: n.y }}; }});
+
+      const edgeX = [];
+      const edgeY = [];
+      activeEdges.forEach(e => {{
+        const p0 = nodePosMap[e.source];
+        const p1 = nodePosMap[e.target];
+        if (p0 && p1) {{
+          edgeX.push(p0.x, p1.x, null);
+          edgeY.push(p0.y, p1.y, null);
+        }}
+      }});
+
+      const edgeTrace = {{
+        x: edgeX,
+        y: edgeY,
+        line: {{ width: 1.8, color: 'rgba(139, 92, 246, 0.45)' }},
+        hoverinfo: 'none',
+        mode: 'lines',
+        type: 'scatter'
+      }};
+
+      const midX = [];
+      const midY = [];
+      const midText = [];
+      activeEdges.forEach(e => {{
+        const p0 = nodePosMap[e.source];
+        const p1 = nodePosMap[e.target];
+        if (p0 && p1) {{
+          midX.push((p0.x + p1.x) / 2);
+          midY.push((p0.y + p1.y) / 2);
+          midText.push(escapeHtml(e.source) + ' ➔ ' + escapeHtml(e.target) + '<br><b>Acción:</b> ' + escapeHtml(e.label));
+        }}
+      }});
+
+      const midTrace = {{
+        x: midX,
+        y: midY,
+        mode: 'markers',
+        hoverinfo: 'text',
+        text: midText,
+        marker: {{ size: 6, color: '#00F0FF', opacity: 0.85 }},
+        type: 'scatter',
+        showlegend: false
+      }};
+
+      const categories = [
+        {{ type: 'attacker_ip', name: 'Atacantes Inbound', color: '#FF2A5F', symbol: 'circle' }},
+        {{ type: 'incident', name: 'Vectores e Incidentes MITRE', color: '#8B5CF6', symbol: 'diamond' }},
+        {{ type: 'host', name: 'Activos Comprometidos', color: '#00F0FF', symbol: 'square' }},
+        {{ type: 'user', name: 'Identidades y Cuentas', color: '#FBBF24', symbol: 'circle' }},
+        {{ type: 'c2_ip', name: 'Destinos C2 Outbound', color: '#EC4899', symbol: 'hexagon' }}
+      ];
+
+      const traces = [edgeTrace, midTrace];
+      categories.forEach(cat => {{
+        const catNodes = activeNodes.filter(n => n.type === cat.type);
+        if (!catNodes.length) return;
+
+        traces.push({{
+          x: catNodes.map(n => n.x),
+          y: catNodes.map(n => n.y),
+          mode: 'markers+text',
+          text: catNodes.map(n => n.label),
+          textposition: 'top center',
+          textfont: {{ family: 'JetBrains Mono, monospace', size: 10, color: '#E2E8F0' }},
+          hoverinfo: 'text',
+          hovertext: catNodes.map(n => `<b>${{escapeHtml(n.label)}}</b><br>Tipo: ${{escapeHtml(n.type)}}<br>Eventos: ${{n.events_count}}${{n.risk ? '<br>Riesgo: ' + n.risk : ''}}${{n.mitre ? '<br>MITRE: ' + n.mitre : ''}}`),
+          name: cat.name,
+          marker: {{
+            size: catNodes.map(n => n.size || 20),
+            color: cat.color,
+            symbol: cat.symbol,
+            line: {{ width: 2, color: '#FFFFFF' }},
+            opacity: 0.95
+          }},
+          type: 'scatter'
+        }});
+      }});
+
+      const layout = {{
+        paper_bgcolor: 'rgba(10, 15, 29, 0.95)',
+        plot_bgcolor: 'rgba(10, 15, 29, 0.95)',
+        font: {{ color: '#E2E8F0', family: 'Inter, sans-serif' }},
+        margin: {{ l: 20, r: 20, t: 40, b: 50 }},
+        height: 560,
+        hovermode: 'closest',
+        showlegend: true,
+        legend: {{
+          orientation: 'h',
+          y: -0.12,
+          x: 0.5,
+          xanchor: 'center',
+          font: {{ size: 11, color: '#CBD5E1' }}
+        }},
+        xaxis: {{ showgrid: false, zeroline: false, showticklabels: false }},
+        yaxis: {{ showgrid: false, zeroline: false, showticklabels: false }}
+      }};
+
+      Plotly.newPlot('chartAttackGraph', traces, layout, {{ responsive: true, displayModeBar: false }});
+
+      const badge = document.getElementById('graphStatsBadge');
+      if (badge && graphData.meta) {{
+        badge.textContent = `✓ ${{activeNodes.length}} Nodos Visibles · ${{activeEdges.length}} Aristas (Red Total: ${{graphData.meta.total_nodes}} Nodos)`;
+      }}
     }}
 
     function renderHiddenTrapsTable() {{
@@ -1950,6 +2102,99 @@ def build_static_web_portal(
       // Re-render UI Components
       renderIncidents('ALL');
       renderCharts();
+
+      // Rebuild attack graph client-side
+      const gNodes = [];
+      const gEdges = [];
+      findings.forEach(f => {{
+        gNodes.push({{
+          id: f.id,
+          label: f.id + ': ' + f.categoria,
+          type: 'incident',
+          color: '#8B5CF6',
+          size: 28,
+          events_count: f.eventos_count,
+          risk: f.riesgo,
+          mitre: f.mitre,
+          symbol: 'diamond'
+        }});
+        (f.activos || '').split(',').forEach(h => {{
+          h = h.trim();
+          if (h && h !== '-') {{
+            const hid = 'HOST:' + h;
+            if (!gNodes.find(n => n.id === hid)) {{
+              gNodes.push({{ id: hid, label: '🖥️ ' + h, type: 'host', color: '#00F0FF', size: 22, symbol: 'square', events_count: 0 }});
+            }}
+            gEdges.push({{ source: f.id, target: hid, label: 'Impacta Activo', edge_type: 'impact' }});
+          }}
+        }});
+        (f.usuarios || '').split(',').forEach(u => {{
+          u = u.trim().split(' ')[0];
+          if (u && u !== '-') {{
+            const uid = 'USER:' + u;
+            if (!gNodes.find(n => n.id === uid)) {{
+              gNodes.push({{ id: uid, label: '👤 ' + u.replace('CORP\\\\', ''), type: 'user', color: '#FBBF24', size: 18, symbol: 'circle', events_count: 0 }});
+            }}
+            gEdges.push({{ source: uid, target: f.id, label: 'Involucra Identidad', edge_type: 'identity' }});
+          }}
+        }});
+        (f.ioc || '').split(';').forEach(part => {{
+          part = part.trim();
+          if (part.includes('IP Atacante:') || part.includes('IP Origen:')) {{
+            const ip = part.split(':')[1]?.trim();
+            if (ip && ip !== '-') {{
+              const ipId = 'IP:' + ip;
+              if (!gNodes.find(n => n.id === ipId)) {{
+                gNodes.push({{ id: ipId, label: '🔴 ' + ip, type: 'attacker_ip', color: '#FF2A5F', size: 24, symbol: 'circle', events_count: 0 }});
+              }}
+              gEdges.push({{ source: ipId, target: f.id, label: 'Vector de Intrusión', edge_type: 'attack' }});
+            }}
+          }} else if (part.includes('IP Destino:') || part.includes('C2:') || part.includes('Destino:')) {{
+            const ip = part.split(':')[1]?.trim();
+            if (ip && ip !== '-') {{
+              const c2Id = 'C2:' + ip;
+              if (!gNodes.find(n => n.id === c2Id)) {{
+                gNodes.push({{ id: c2Id, label: '💀 C2: ' + ip, type: 'c2_ip', color: '#EC4899', size: 24, symbol: 'hexagon', events_count: 0 }});
+              }}
+              gEdges.push({{ source: f.id, target: c2Id, label: 'Exfiltración C2', edge_type: 'exfil' }});
+            }}
+          }}
+        }});
+      }});
+
+      const totalGNodes = gNodes.length;
+      gNodes.forEach((n, idx) => {{
+        const angle = (2 * Math.PI * idx) / Math.max(1, totalGNodes);
+        const radius = n.type === 'incident' ? 0.35 : (n.type === 'host' ? 0.65 : 0.95);
+        n.x = Math.cos(angle) * radius;
+        n.y = Math.sin(angle) * radius;
+      }});
+
+      SOC_DATA.attack_graph = {{
+        meta: {{
+          total_nodes: gNodes.length,
+          total_edges: gEdges.length,
+          attackers_count: gNodes.filter(n => n.type === 'attacker_ip').length,
+          hosts_count: gNodes.filter(n => n.type === 'host').length,
+          users_count: gNodes.filter(n => n.type === 'user').length,
+          incidents_count: gNodes.filter(n => n.type === 'incident').length
+        }},
+        nodes: gNodes,
+        edges: gEdges
+      }};
+
+      const gFilter = document.getElementById('graphIncidentFilter');
+      if (gFilter) {{
+        gFilter.innerHTML = '<option value="ALL">📋 Toda la Red de Ataque (Global)</option>';
+        findings.forEach(f => {{
+          const opt = document.createElement('option');
+          opt.value = f.id;
+          opt.textContent = `🎯 Subgrafo ${{f.id}}: ${{f.titulo}}`;
+          gFilter.appendChild(opt);
+        }});
+      }}
+
+      renderAttackGraph('ALL');
       renderHiddenTrapsTable();
       renderLogTable();
       document.getElementById('execReportBox').value = execMd;
@@ -2050,9 +2295,21 @@ def build_static_web_portal(
       renderIncidents('ALL');
       renderDetectionEngineering();
       renderCharts();
+      renderAttackGraph('ALL');
       renderHiddenTrapsTable();
       document.getElementById('execReportBox').value = SOC_DATA.exec_md;
       document.getElementById('techReportBox').value = SOC_DATA.tech_md;
+
+      const gFilter = document.getElementById('graphIncidentFilter');
+      if (gFilter) {{
+        gFilter.innerHTML = '<option value="ALL">📋 Toda la Red de Ataque (Global)</option>';
+        SOC_DATA.findings.forEach(f => {{
+          const opt = document.createElement('option');
+          opt.value = f.id;
+          opt.textContent = `🎯 Subgrafo ${{f.id}}: ${{f.titulo}}`;
+          gFilter.appendChild(opt);
+        }});
+      }}
 
       const incSelect = document.getElementById('logIncidentFilter');
       const uniqueTags = [...new Set(SOC_DATA.logs.map(r => r.Incident_Tag))];

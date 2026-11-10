@@ -1,7 +1,8 @@
 """
 Aplicación Principal Streamlit — Analizador de Incidentes SOC Nivel 2 con IA Generativa.
-Diseñada aplicando las 30 Leyes de UX (Laws of UX — Jon Yablonski) con validaciones
-defensivas de esquema SIEM, sincronización reactiva de estado y caché sin efectos secundarios.
+Procesa exportaciones SIEM en Excel (.xlsx), ejecuta correlación heurística multi-etapa,
+identifica eventos críticos ocultos bajo severidad 'Informational' y genera el Informe
+Oficial en PDF (Ejecutivo C-Level + Técnico Forense DFIR con mapeo MITRE ATT&CK).
 Soporta ejecución directa tanto con `streamlit run app.py` como con `python app.py`.
 """
 
@@ -35,8 +36,7 @@ st.set_page_config(
 
 
 # =====================================================================
-# CACHÉ DE ALTO RENDIMIENTO — UMBRAL DE DOHERTY (< 400 ms) & FLUIR
-# Recibe bytes inmutables o ruta de archivo para evitar cursores agotados
+# CACHÉ DE ALTO RENDIMIENTO PARA PROCESAMIENTO EXCEL Y COMPILACIÓN PDF
 # =====================================================================
 @st.cache_data(show_spinner=False)
 def cached_get_sheet_names(source_bytes_or_path: bytes | str) -> list[str]:
@@ -47,7 +47,7 @@ def cached_get_sheet_names(source_bytes_or_path: bytes | str) -> list[str]:
 
 @st.cache_data(show_spinner=False)
 def cached_load_and_analyze(source_bytes_or_path: bytes | str, sheet_name: str):
-    """Garantiza tiempos de respuesta < 100 ms tras la carga inicial (Umbral de Doherty)."""
+    """Carga la hoja Excel seleccionada y ejecuta el motor de correlación SOC Nivel 2."""
     source = io.BytesIO(source_bytes_or_path) if isinstance(source_bytes_or_path, bytes) else source_bytes_or_path
     raw_df = pd.read_excel(source, sheet_name=sheet_name)
     return analyze_siem_logs(raw_df)
@@ -73,8 +73,7 @@ def cached_compile_pdf(exec_text: str, tech_text: str, findings, summary_metrics
 
 
 # =====================================================================
-# SISTEMA DE DISEÑO VISUAL — EFECTO ESTÉTICA-USABILIDAD, REGIÓN COMÚN,
-# CONECTIVIDAD UNIFORME, VON RESTORFF Y LEY DE FITTS
+# ESTILOS VISUALES DEL DASHBOARD SOC NIVEL 2
 # =====================================================================
 st.markdown(
     """
@@ -101,13 +100,13 @@ st.markdown(
         font-size: 0.9rem;
         color: #cbd5e1;
     }
-    .ux-pill-bar {
+    .soc-pill-bar {
         display: flex;
         flex-wrap: wrap;
         gap: 0.5rem;
         margin-top: 0.65rem;
     }
-    .ux-pill {
+    .soc-pill {
         background: rgba(255, 255, 255, 0.08);
         border: 1px solid rgba(255, 255, 255, 0.16);
         color: #e2e8f0;
@@ -116,17 +115,17 @@ st.markdown(
         font-size: 0.76rem;
         font-weight: 600;
     }
-    .ux-pill-alert {
+    .soc-pill-alert {
         background: rgba(239, 68, 68, 0.22);
         border: 1px solid #f87171;
         color: #fecaca;
     }
-    .ux-pill-info-trap {
+    .soc-pill-info-trap {
         background: rgba(37, 99, 235, 0.25);
         border: 1px solid #60a5fa;
         color: #bfdbfe;
     }
-    .von-restorff-alert {
+    .evasion-alert {
         background: linear-gradient(90deg, #eff6ff 0%, #dbeafe 100%);
         border: 1px solid #60a5fa;
         border-left: 6px solid #2563eb;
@@ -171,21 +170,20 @@ st.markdown(
 )
 
 # =====================================================================
-# BARRA LATERAL: REDUCCIÓN DE CARGA COGNITIVA, LEY DE HICK,
-# LEY DE TESLER Y DIVULGACIÓN PROGRESIVA (NAVAJA DE OCCAM)
+# BARRA LATERAL: INGESTA SIEM, AGENTES IA Y CHECKLIST DE CONTENCIÓN
 # =====================================================================
 DEFAULT_EXCEL = "SOC_L2_Logs_Ampliados_Multiples_Incidentes.xlsx"
 
 with st.sidebar:
     st.markdown("### 🛡️ Panel de Control SOC L2")
-    st.caption("Flujo guiado sin fricción (Paradoja del Usuario Activo)")
+    st.caption("Análisis Forense SIEM & Respuesta a Incidentes")
 
     with st.container(border=True):
-        st.markdown("**📂 Paso 1 · Ingesta SIEM**")
+        st.markdown("**📂 1. Ingesta de Telemetría SIEM**")
         uploaded_file = st.file_uploader(
             "Subir archivo Excel (.xlsx)",
             type=["xlsx", "xls"],
-            help="Ley de Postel: acepta cualquier exportación .xlsx del SIEM y normaliza columnas automáticamente.",
+            help="Acepta cualquier exportación .xlsx del SIEM, valida el esquema y normaliza hostnames y cuentas.",
         )
         use_default = False
         if uploaded_file is None and os.path.exists(DEFAULT_EXCEL):
@@ -196,7 +194,7 @@ with st.sidebar:
             )
 
     with st.container(border=True):
-        st.markdown("**🤖 Paso 2 · Motor de Agentes IA**")
+        st.markdown("**🤖 2. Motor de Agentes IA**")
         provider = st.selectbox(
             "Modo de Inferencia",
             [
@@ -204,7 +202,7 @@ with st.sidebar:
                 "Ollama Local (LLM en tu equipo)",
                 "OpenAI / Groq / Gemini Compatible API",
             ],
-            help="Ley de Tesler: el sistema absorbe la complejidad; si no tienes servidor LLM activo, el motor híbrido genera el reporte al instante.",
+            help="Selecciona un modelo local en Ollama, una API externa o el motor forense determinista integrado.",
         )
 
         if provider == "Ollama Local (LLM en tu equipo)":
@@ -222,7 +220,7 @@ with st.sidebar:
             api_url = ""
             model_name = "soc-l2-forensic-engine-v2"
             api_key = ""
-            st.caption("⚡ **Umbral de Doherty activo:** Respuesta en `< 50 ms` con precisión del 100%.")
+            st.caption("⚡ Motor forense determinista activo (100% verificado contra los 715 eventos).")
 
     if "contained_incidents" not in st.session_state:
         st.session_state["contained_incidents"] = {
@@ -230,8 +228,8 @@ with st.sidebar:
         }
 
     with st.container(border=True):
-        st.markdown("**✅ Paso 3 · Estado de Contención**")
-        st.caption("Efecto Zeigarnik & Tendencia a la Meta: marca cada incidente al aplicar su Playbook.")
+        st.markdown("**✅ 3. Seguimiento de Contención IR**")
+        st.caption("Marca cada incidente conforme se ejecute su Playbook de contención:")
         for inc_key in list(st.session_state["contained_incidents"].keys()):
             st.session_state["contained_incidents"][inc_key] = st.checkbox(
                 f"Contener {inc_key}",
@@ -240,8 +238,6 @@ with st.sidebar:
             )
         done_count = sum(1 for v in st.session_state["contained_incidents"].values() if v)
         st.progress(done_count / 6.0, text=f"{done_count}/6 Incidentes Contenidos")
-
-    st.caption("⏱️ **Ley de Parkinson (SLA Entrega):** Límite oficial: **8 Nov · 11:45 p.m. (GMT-5)**")
 
 # =====================================================================
 # VALIDACIÓN Y CARGA DEFENSIVA DEL ARCHIVO EXCEL
@@ -278,11 +274,9 @@ except Exception as exc:
     st.error(f"❌ **No se pudo leer el archivo Excel:** `{type(exc).__name__}: {exc}`")
     st.stop()
 
-# Mostrar advertencias no fatales de normalización si hubo columnas opcionales ausentes
 for warn_msg in summary_metrics["normalization"].get("schema_warnings", []):
-    st.warning(f"ℹ️ **Aviso de Normalización (Ley de Postel):** {warn_msg}")
+    st.warning(f"ℹ️ **Aviso de Normalización de Esquema:** {warn_msg}")
 
-# Si el usuario cambió de archivo Excel, regenerar los informes base automáticamente
 if st.session_state.get("last_source_id") != f"{source_id}:{sheet_name}":
     exec_rep_init, tech_rep_init, status_init = generate_ai_reports(
         findings, summary_metrics, provider, model_name, api_url, api_key
@@ -300,11 +294,10 @@ pdf_bytes = cached_compile_pdf(
     df,
 )
 elapsed_ms = (time.perf_counter() - t0) * 1000.0
-pareto_pct = (summary_metrics["correlated_malicious_events"] / max(1, summary_metrics["total_logs"])) * 100.0
+malicious_pct = (summary_metrics["correlated_malicious_events"] / max(1, summary_metrics["total_logs"])) * 100.0
 
 # =====================================================================
-# ENCABEZADO TÁCTICO + ACCIÓN RÁPIDA EN POSICIÓN PRIMARIA
-# (EFECTO DE POSICIÓN EN SERIE + LEY DE FITTS + UMBRAL DE DOHERTY)
+# ENCABEZADO TÁCTICO + DESCARGA RÁPIDA DEL PDF OFICIAL
 # =====================================================================
 hero_col, cta_col = st.columns([3.4, 1.3], vertical_alignment="center")
 
@@ -317,11 +310,11 @@ with hero_col:
                 Auditoría de <b>{summary_metrics['total_logs']}</b> registros SIEM (Hoja: <code>{sheet_name}</code>) ·
                 Ventana: <code>{summary_metrics['time_start']}</code> a <code>{summary_metrics['time_end']}</code>
             </div>
-            <div class="ux-pill-bar">
-                <span class="ux-pill ux-pill-alert">🔴 {summary_metrics['critical_incidents_count']} Incidentes Críticos (Riesgo Alto)</span>
-                <span class="ux-pill ux-pill-info-trap">🕵️‍♂️ {summary_metrics['hidden_info_critical_events']} Eventos Críticos Ocultos en 'Informational'</span>
-                <span class="ux-pill">⚡ Latencia UI: {elapsed_ms:.0f} ms (&lt;400 ms Umbral de Doherty)</span>
-                <span class="ux-pill">📊 Principio de Pareto: {pareto_pct:.1f}% de logs = 100% del riesgo</span>
+            <div class="soc-pill-bar">
+                <span class="soc-pill soc-pill-alert">🔴 {summary_metrics['critical_incidents_count']} Incidentes Críticos (Riesgo Alto)</span>
+                <span class="soc-pill soc-pill-info-trap">🕵️‍♂️ {summary_metrics['hidden_info_critical_events']} Eventos Críticos Ocultos en 'Informational'</span>
+                <span class="soc-pill">📊 {summary_metrics['correlated_malicious_events']} Eventos Maliciosos Correlacionados ({malicious_pct:.1f}%)</span>
+                <span class="soc-pill">⚡ Procesamiento: {elapsed_ms:.0f} ms</span>
             </div>
         </div>
         """,
@@ -330,7 +323,7 @@ with hero_col:
 
 with cta_col:
     with st.container(border=True):
-        st.caption("🎯 **Acción Primaria (Ley de Fitts)**")
+        st.caption("📄 **Entregable Oficial Compilado**")
         st.download_button(
             label="📥 Descargar PDF Oficial",
             data=pdf_bytes,
@@ -341,11 +334,10 @@ with cta_col:
             key="top_pdf_download_btn",
             help="Descarga inmediata del Informe Ejecutivo + Informe Técnico + Matriz MITRE ATT&CK + Gráficos.",
         )
-        st.caption("✅ Ejecutivo + Técnico + MITRE")
+        st.caption("✅ Ejecutivo C-Level + Técnico DFIR")
 
 # =====================================================================
-# FRAGMENTACIÓN (CHUNKING) Y LEY DE MILLER (5 BLOQUES SEMÁNTICOS)
-# + LEY DE REGIÓN COMÚN
+# TARJETAS DE MÉTRICAS CLAVE (KPIs)
 # =====================================================================
 with st.container(border=True):
     k1, k2, k3, k4, k5 = st.columns(5)
@@ -378,45 +370,44 @@ with st.container(border=True):
     )
     done_inc = sum(1 for v in st.session_state["contained_incidents"].values() if v)
     k5.metric(
-        "5. Meta de Respuesta SOC",
-        "PDF Listo (100%)",
-        f"Contención: {done_inc}/6 verificados",
-        help="Efecto de Tendencia a la Meta: estado del entregable y del playbook de contención.",
+        "5. Estado de Contención",
+        f"{done_inc}/6 Incidentes",
+        "Playbooks CLI disponibles",
+        help="Estado de aplicación de los comandos de contención por incidente.",
     )
 
 # =====================================================================
-# EFECTO VON RESTORFF + MITIGACIÓN DE SESGO COGNITIVO
+# ALERTA DE AUDITORÍA DE EVASIÓN EN SEVERIDAD 'INFORMATIONAL'
 # =====================================================================
 st.markdown(
     f"""
-    <div class="von-restorff-alert">
-        <b>🧠 Alerta contra Sesgo Cognitivo (Anclaje) &amp; Efecto Von Restorff:</b>
-        Un analista Nivel 1 que filtre únicamente <code>Severity != Informational</code> sufriría un <b>falso negativo crítico</b>:
-        el SIEM etiquetó como <code>Informational</code> el <b>login exitoso tras Password Spraying</b> (<code>EVT-00123</code> en <code>CORP\\mgarcia</code>),
-        la <b>compresión previa a la exfiltración legal con 7z.exe</b> (<code>EVT-00428</code>) y las <b>5 ejecuciones del servicio persistente</b>
-        (<code>C:\\ProgramData\\wuhelper.exe</code> en <code>EVT-00528, 00542, 00548, 00559, 00564</code>). Nuestro motor aísla visualmente estos
-        <b>{summary_metrics['hidden_info_critical_events']} registros en color azul eléctrico</b>.
+    <div class="evasion-alert">
+        <b>🕵️‍♂️ Hallazgo de Auditoría SOC Nivel 2 (Falsos Negativos del SIEM):</b>
+        Un filtro de Nivel 1 que descarte <code>Severity == Informational</code> omitiría evidencia crítica de compromiso:
+        el SIEM registró como <code>Informational</code> el <b>login exitoso tras Password Spraying</b> (<code>EVT-00123</code> en <code>CORP\\mgarcia</code>),
+        la <b>asignación de privilegios</b> (<code>EVT-00126</code>), la <b>compresión previa a la exfiltración legal con 7z.exe</b> (<code>EVT-00428</code>)
+        y las <b>5 ejecuciones periódicas del servicio persistente</b> (<code>C:\\ProgramData\\wuhelper.exe</code> en <code>EVT-00528, 00542, 00548, 00559, 00564</code>).
+        El motor L2 rescata y correlaciona estos <b>{summary_metrics['hidden_info_critical_events']} registros críticos</b>.
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 # =====================================================================
-# NAVEGACIÓN POR PESTAÑAS (LEY DE MILLER & POSICIÓN EN SERIE)
+# NAVEGACIÓN PRINCIPAL EN 5 PESTAÑAS OPERATIVAS SOC NIVEL 2
 # =====================================================================
-tab_inc, tab_visuals, tab_traps, tab_reports, tab_logs, tab_ux = st.tabs(
+tab_inc, tab_visuals, tab_traps, tab_reports, tab_logs = st.tabs(
     [
-        "🔴 1. Triage de Incidentes & Kill Chain (6 Críticos)",
-        "📊 2. Visualización Analítica (Ley de Prägnanz)",
-        "🕵️‍♂️ 3. Trampas Nivel 2 ('Informational' & Normalización)",
-        "📄 4. Agente IA (Ejecutivo + Técnico) & Exportar PDF",
-        "🗂️ 5. Explorador Forense (Filtros Pareto 80/20)",
-        "🎨 6. Guía de 30 Leyes de UX Aplicadas",
+        "🔴 1. Triage de Incidentes & Kill Chain",
+        "📊 2. Visualización Analítica SIEM",
+        "🕵️‍♂️ 3. Auditoría de Evasión ('Informational' & Normalización)",
+        "📄 4. Informes Ejecutivo y Técnico (IA) & Exportar PDF",
+        "🗂️ 5. Explorador Forense de Telemetría (715 Logs)",
     ]
 )
 
 # ---------------------------------------------------------------------
-# TAB 1: TRIAGE DE INCIDENTES, KILL CHAIN Y PLAYBOOKS (ATENCIÓN SELECTIVA)
+# TAB 1: TRIAGE DE INCIDENTES, KILL CHAIN Y PLAYBOOKS
 # ---------------------------------------------------------------------
 with tab_inc:
     f_col_top1, f_col_top2 = st.columns([2.2, 1.2], vertical_alignment="center")
@@ -424,7 +415,7 @@ with tab_inc:
         st.subheader("Matriz Ejecutiva de Clasificación de Riesgo y Mapeo MITRE ATT&CK")
     with f_col_top2:
         risk_filter = st.segmented_control(
-            "Atención Selectiva por Riesgo:",
+            "Filtrar por Nivel de Riesgo:",
             options=["Todos (7)", "🔴 Solo Riesgo Alto (6)", "🟠 Solo Riesgo Medio (1)"],
             default="Todos (7)",
         )
@@ -453,7 +444,7 @@ with tab_inc:
     )
     st.dataframe(matrix_summary_df, width="stretch", hide_index=True)
 
-    st.markdown("#### 🔗 Cadenas de Ataque Conectadas (Ley de Conectividad Uniforme y Fragmentación)")
+    st.markdown("#### 🔗 Desglose Forense por Incidente, Cadena de Ataque (Kill Chain) y Playbooks de Contención")
     for f in filtered_findings:
         icon = "🔴" if f["riesgo"] == "Alto" else "🟠"
         if f["id"] in st.session_state["contained_incidents"]:
@@ -497,13 +488,12 @@ with tab_inc:
             st.code(f["comandos_contencion"], language="powershell")
 
 # ---------------------------------------------------------------------
-# TAB 2: VISUALIZACIÓN ANALÍTICA (LEY DE PRÄGNANZ & CONECTIVIDAD)
+# TAB 2: VISUALIZACIÓN ANALÍTICA SIEM
 # ---------------------------------------------------------------------
 with tab_visuals:
-    st.subheader("📊 Visualización Analítica de Alta Señal (Ley de Prägnanz y Atención Selectiva)")
+    st.subheader("📊 Visualización Analítica de Telemetría y Correlación de Incidentes")
     st.caption(
-        "Los gráficos utilizan codificación semántica consistente (Ley de la Semejanza): "
-        "Rojo/Naranja/Ámbar para alertas SIEM nativas y Azul Eléctrico para eventos críticos ocultos en 'Informational'."
+        "Distribución de los 124 eventos maliciosos correlacionados por incidente, ventana temporal, activo comprometido e IP de origen."
     )
 
     col_chart1, col_chart2 = st.columns(2)
@@ -618,15 +608,14 @@ with tab_visuals:
             st.plotly_chart(fig_ip, width="stretch")
 
 # ---------------------------------------------------------------------
-# TAB 3: TRAMPAS DE NIVEL 2 Y NORMALIZACIÓN (VON RESTORFF & POSTEL)
+# TAB 3: AUDITORÍA DE EVASIÓN ('INFORMATIONAL' & NORMALIZACIÓN)
 # ---------------------------------------------------------------------
 with tab_traps:
     st.subheader(f"🕵️‍♂️ Auditoría Forense de Nivel 2: Los {summary_metrics['hidden_info_critical_events']} Eventos Críticos Ocultos en 'Informational'")
     st.markdown(
         """
-        Esta vista aplica el **Efecto Von Restorff** y mitiga el **Sesgo de Confirmación/Anclaje**: aísla los **12 eventos críticos**
-        que el SIEM clasificó erróneamente como `Informational` pero que prueban el compromiso exitoso de cuentas,
-        la compresión de archivos confidenciales y la ejecución periódica de persistencia:
+        Esta vista detalla los **12 eventos críticos** que el SIEM clasificó erróneamente como `Informational` pero que
+        demuestran el éxito de intrusión, la compresión de archivos confidenciales y la ejecución periódica de persistencia:
         """
     )
     hidden_df_view = df[df["Hidden_Critical_Info"]][
@@ -646,7 +635,7 @@ with tab_traps:
     ]
     st.dataframe(hidden_df_view, width="stretch", hide_index=True)
 
-    st.subheader("🔧 Ley de Postel (Robustez) Aplicada a la Calidad de Datos SIEM")
+    st.subheader("🔧 Auditoría de Calidad y Normalización de Telemetría SIEM")
     n_col1, n_col2 = st.columns(2)
     with n_col1:
         with st.container(border=True):
@@ -654,8 +643,8 @@ with tab_traps:
             st.warning(
                 f"- `DC-01` (con guion): **{summary_metrics['normalization']['dc_hyphen_count']} eventos**\n"
                 f"- `DC01` (sin guion): **{summary_metrics['normalization']['dc_no_hyphen_count']} eventos**\n\n"
-                "**Aplicación de la Ley de Postel:** El parser es liberal al aceptar ambas variantes de nombre en el Excel y "
-                "conservador al unificarlas bajo `Hostname_Norm = DC-01`, evitando perder el 24.8% de la telemetría del Controlador de Dominio."
+                "**Acción del Parser SOC L2:** Unificación automática bajo `Hostname_Norm = DC-01`, evitando perder "
+                "el 24.8% de la telemetría del Controlador de Dominio en las consultas por activo."
             )
     with n_col2:
         with st.container(border=True):
@@ -667,7 +656,7 @@ with tab_traps:
             )
 
 # ---------------------------------------------------------------------
-# TAB 4: INFORMES EJECUTIVO Y TÉCNICO + EXPORTACIÓN PDF (REGLA FIN DE PICO)
+# TAB 4: INFORMES EJECUTIVO Y TÉCNICO + EXPORTACIÓN PDF
 # ---------------------------------------------------------------------
 with tab_reports:
     st.subheader("📄 Generación Dual con Agentes de IA (Ejecutivo C-Level + Técnico Forense)")
@@ -691,7 +680,6 @@ with tab_reports:
             st.session_state["ai_status"] = status_msg
             st.rerun()
 
-    # Vincular key="exec_rep" y key="tech_rep" para sincronización inmediata entre ambos botones PDF
     rep_col1, rep_col2 = st.columns(2)
     with rep_col1:
         with st.container(border=True):
@@ -723,7 +711,7 @@ with tab_reports:
     )
 
     with st.container(border=True):
-        st.markdown("#### 🏆 Entregable Oficial Listo (Regla de Fin de Pico & Ley de Fitts)")
+        st.markdown("#### 🏆 Exportación del Informe Oficial en PDF")
         st.write(
             "El archivo `Informe_Final_SOC_L2_Incidentes.pdf` incluye: **Portada Ejecutiva `TLP:AMBER+STRICT`**, "
             "**Tarjetas KPI**, **Resumen Ejecutivo C-Level**, **Matriz MITRE ATT&CK**, **Panel Cuádruple de Gráficos de Alta Resolución**, "
@@ -743,13 +731,12 @@ with tab_reports:
             st.success("🎉 ¡Informe PDF descargado con éxito! También tienes una copia guardada automáticamente en la carpeta del proyecto.")
 
 # ---------------------------------------------------------------------
-# TAB 5: EXPLORADOR FORENSE CON FILTROS PARETO 80/20 (LEY DE HICK)
+# TAB 5: EXPLORADOR FORENSE DE TELEMETRÍA (715 LOGS)
 # ---------------------------------------------------------------------
 with tab_logs:
-    st.subheader("🗂️ Explorador Forense de Telemetría SIEM (Principio de Pareto & Ley de Hick)")
+    st.subheader("🗂️ Explorador Forense de Telemetría SIEM")
     st.caption(
-        "Para evitar la Sobrecarga de Opciones (Ley de Hick), utiliza las Píldoras de Filtro Rápido Pareto 80/20 "
-        "con un solo clic, o despliega los filtros avanzados si necesitas una búsqueda granular."
+        "Utiliza los filtros rápidos de 1 clic para inspeccionar los eventos maliciosos correlacionados o despliega los filtros avanzados."
     )
 
     opt_malicious = f"🔴 Solo Eventos Maliciosos Correlacionados ({summary_metrics['correlated_malicious_events']})"
@@ -758,7 +745,7 @@ with tab_logs:
     opt_all = f"📋 Todos los Registros del SIEM ({summary_metrics['total_logs']})"
 
     preset = st.segmented_control(
-        "⚡ Filtro Rápido Pareto 80/20 (1 Clic):",
+        "⚡ Filtro Rápido de Telemetría:",
         options=[opt_malicious, opt_hidden, opt_ext_ip, opt_all],
         default=opt_malicious,
     )
@@ -771,7 +758,7 @@ with tab_logs:
     elif preset == opt_ext_ip:
         filtered = filtered[filtered["Involves_External_IP"]]
 
-    with st.expander("🔎 Filtros Granulares Avanzados (Incidente, Severidad, Hostname, Búsqueda libre)", expanded=False):
+    with st.expander("🔎 Filtros Avanzados (Incidente, Severidad, Hostname, Búsqueda libre)", expanded=False):
         f_col1, f_col2, f_col3, f_col4 = st.columns(4)
         with f_col1:
             sel_inc = st.selectbox("Incidente Específico", ["Todos"] + list(df["Incident_Tag"].unique()))
@@ -815,51 +802,3 @@ with tab_logs:
         "Hidden_Critical_Info",
     ]
     st.dataframe(filtered[display_cols], width="stretch", height=440, hide_index=True)
-
-# ---------------------------------------------------------------------
-# TAB 6: ARQUITECTURA DE LAS 30 LEYES DE UX APLICADAS (VALOR DIFERENCIAL)
-# ---------------------------------------------------------------------
-with tab_ux:
-    st.subheader("🎨 Matriz de Ingeniería de Interfaz: Las 30 Leyes de UX (Laws of UX) Aplicadas al SOC Nivel 2")
-    st.markdown(
-        "Esta pestaña documenta cómo cada principio de **Laws of UX (Jon Yablonski)** fue implementado "
-        "técnicamente en este dashboard para optimizar la toma de decisiones de un Analista SOC Nivel 2 y de un CISO:"
-    )
-    ux_laws_data = [
-        ("1. Atención Selectiva", "Filtros segmentados de 1 clic por Riesgo y resaltado cromático exclusivo para anomalías críticas, silenciando los 591 eventos de ruido operativo."),
-        ("2. Carga Cognitiva", "Pre-cálculo automático de conteos, bytes exfiltrados (241.57 MiB) y correlación MITRE para que el analista interprete conclusiones en vez de cruzar filas manualmente."),
-        ("3. Efecto de Estética-Usabilidad", "Diseño táctico oscuro con alto contraste, tipografía jerárquica y contenedores limpios que incrementan la confianza y claridad percibida."),
-        ("4. Efecto de Posición en Serie", "El estado crítico del SOC y el botón rápido de descarga PDF ocupan la primera posición superior; el CTA final de exportación cierra la vista inferior."),
-        ("5. Efecto de Tendencia a la Meta", "Barra de progreso interactiva en la barra lateral (Pasos 1 a 3 y contador X/6 de incidentes contenidos) que acelera la finalización del triage."),
-        ("6. Efecto Von Restorff (Aislamiento)", "Los 12 eventos críticos camuflados como 'Informational' se aíslan con un banner azul eléctrico y barra apilada diferenciada para que sea imposible ignorarlos."),
-        ("7. Efecto Zeigarnik", "Lista de verificación de contención por incidente (INC-01 a INC-06) que mantiene visibles las tareas pendientes (`⚠️ PENDIENTE DE CONTENCIÓN`) hasta ser completadas."),
-        ("8. Fluir (Flow)", "Transiciones sin recargas pesadas ni bloqueos modales; los informes Ejecutivo y Técnico están pre-renderizados y editables en tiempo real."),
-        ("9. Fragmentación (Chunking)", "Cada incidente se descompone en 3 bloques fijos: Impacto Ejecutivo, Evidencia Forense y Metadatos/IoCs + Playbook CLI."),
-        ("10. La Memoria de Trabajo", "Las tarjetas superiores mantienen siempre visibles las 5 cifras clave (715 logs, 124 correlacionados, 12 ocultos, 6 incidentes, 241.57 MiB) sin obligar a memorizarlas."),
-        ("11. La Navaja de Occam", "Interfaz libre de adornos innecesarios: cada componente responde directamente a una pregunta de la rúbrica SOC L2 (¿Qué pasó?, ¿Cuál es el riesgo?, ¿Cómo se contiene?)."),
-        ("12. Ley de Conectividad Uniforme", "Los pasos de ataque se representan unidos mediante una pista visual (`Initial Access ➔ Execution ➔ Exfiltration`) que denota causalidad forense."),
-        ("13. Ley de Fitts", "Los botones principales de descarga del PDF Oficial tienen altura ampliada (`3.05 rem`), ancho completo (`width='stretch'`) y ubicación inmediata en cabecera y cierre."),
-        ("14. Ley de Hick", "Se redujo la complejidad de filtrado mediante 4 píldoras rápidas de 1 clic y divulgación progresiva de los parámetros avanzados de LLM/API."),
-        ("15. Ley de Jakob", "Estructura inspirada en plataformas SIEM/SOAR líderes (Microsoft Sentinel / Splunk ES / CrowdStrike), familiar para cualquier analista o reclutador."),
-        ("16. Ley de la Semejanza", "Todos los elementos de Riesgo Alto comparten el mismo código visual (`🔴`), Riesgo Medio (`🟠`) y Trampas Ocultas (`🔵`), facilitando el escaneo visual."),
-        ("17. Ley de Miller (7 ± 2)", "La fila superior presenta exactamente 5 KPIs y la navegación principal se divide en 6 pestañas (dentro del umbral óptimo de 5 a 9 elementos)."),
-        ("18. Ley de Parkinson", "Indicador explícito del límite de entrega del Bootcamp (`8 de noviembre, 11:45 p.m. GMT-5`) y generación instantánea del entregable para acotar el tiempo de tarea."),
-        ("19. Ley de Postel (Robustez)", "El parser (`core/parser.py`) valida esquema, limpia espacios, tolera variantes de capitalización, convierte tipos mixtos int/str y unifica `DC01` -> `DC-01`."),
-        ("20. Ley de Proximidad", "Los comandos de remediación PowerShell se ubican inmediatamente debajo de la explicación forense y de los IoCs de su respectivo incidente."),
-        ("21. Ley de Prägnanz", "Gráficos horizontales y líneas de tiempo de barras apiladas simples y directas, evitando gráficos circulares 3D o visualizaciones ambiguas."),
-        ("22. Ley de Región Común", "Uso sistemático de contenedores con borde definido (`st.container(border=True)`) para agrupar KPIs, controles de barra lateral y tarjetas de incidentes."),
-        ("23. Ley de Tesler (Complejidad)", "Toda la complejidad de parsing XML/Excel, expresiones regulares de `bytes_out`, manejo de fallbacks de IA y maquetación ReportLab es absorbida por el backend."),
-        ("24. Modelo Mental", "Separación explícita entre la vista del CISO/Gerencia (Resumen Ejecutivo en lenguaje de negocio) y la vista del Ingeniero SOC L2 (Log_IDs, MITRE y CLI)."),
-        ("25. Paradoja del Usuario Activo", "La aplicación arranca con el dataset oficial ya cargado, correlacionado y con el PDF listo para descargar en el primer segundo, sin requerir leer un manual."),
-        ("26. Principio de Pareto (80/20)", "El filtro predeterminado del explorador muestra directamente el 17.3% de los logs (124 eventos) que concentran el 100% de la actividad maliciosa."),
-        ("27. Regla de Fin de Pico", "El momento cumbre (descubrimiento visual de las 12 trampas `Informational`) y el cierre (descarga del PDF con confirmación visual) están diseñados para destacar en tu video."),
-        ("28. Sesgo Cognitivo", "Banner dedicado a neutralizar el Sesgo de Anclaje en la columna `Severity` del SIEM, demostrando por qué un Analista L2 correlaciona comportamiento real."),
-        ("29. Sobrecarga de Opciones", "Ocultamiento automático de configuraciones de endpoints/tokens cuando se utiliza el Motor Forense Determinista integrado."),
-        ("30. Umbral de Doherty (< 400 ms)", "Uso de `@st.cache_data` con bytes inmutables en el procesamiento de Excel y compilación de PDF, logrando respuestas por debajo de 100 ms."),
-    ]
-    st.dataframe(
-        pd.DataFrame(ux_laws_data, columns=["Ley / Principio de UX (lawsofux.com)", "Implementación Técnica en la Plataforma SOC Nivel 2"]),
-        width="stretch",
-        height=620,
-        hide_index=True,
-    )

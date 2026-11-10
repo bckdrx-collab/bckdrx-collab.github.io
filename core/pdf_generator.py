@@ -38,7 +38,7 @@ def generate_dashboard_chart_png(df: pd.DataFrame, output_path: str = "soc_l2_da
     contra DataFrames parciales o vacíos, y lo retorna en bytes PNG.
     """
     plt.rcParams["font.sans-serif"] = "DejaVu Sans"
-    fig, axes = plt.subplots(2, 2, figsize=(14, 9.5), dpi=160)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 8.8), dpi=160)
     fig.patch.set_facecolor("#F8FAFC")
     total_events = len(df)
     inc_df = df[df["Incident_ID"] != "NONE"].copy()
@@ -184,7 +184,7 @@ def _draw_header_footer(canvas, doc):
     canvas.setFillColor(colors.HexColor("#0F172A"))
     canvas.rect(0, height - 28, width, 28, fill=1, stroke=0)
 
-    # Texto izquierdo y derecho con fuente 8pt y separación garantizada (>120pt libres en el centro)
+    # Texto izquierdo y derecho con fuente 8pt y separación garantizada (>72pt libres en el centro)
     canvas.setFont("Helvetica-Bold", 8.0)
     canvas.setFillColor(colors.HexColor("#F8FAFC"))
     canvas.drawString(36, height - 18, "CENTRO DE OPERACIONES DE SEGURIDAD (SOC NIVEL 2) — INFORME FORENSE")
@@ -195,11 +195,11 @@ def _draw_header_footer(canvas, doc):
     # Pie de página
     canvas.setStrokeColor(colors.HexColor("#CBD5E1"))
     canvas.setLineWidth(0.6)
-    canvas.line(36, 34, width - 36, 34)
+    canvas.line(36, 32, width - 36, 32)
     canvas.setFillColor(colors.HexColor("#475569"))
     canvas.setFont("Helvetica", 8.0)
-    canvas.drawString(36, 21, "Bootcamp SOC Nivel 2 (Dojo Community) — Análisis Forense SIEM & Respuesta a Incidentes")
-    canvas.drawRightString(width - 36, 21, f"Página {doc.page}")
+    canvas.drawString(36, 19, "Bootcamp SOC Nivel 2 (Dojo Community) — Análisis Forense SIEM & Respuesta a Incidentes")
+    canvas.drawRightString(width - 36, 19, f"Página {doc.page}")
     canvas.restoreState()
 
 
@@ -221,8 +221,8 @@ def build_pdf_report(
         pagesize=letter,
         leftMargin=36,
         rightMargin=36,
-        topMargin=44,
-        bottomMargin=46,
+        topMargin=40,
+        bottomMargin=42,
         title="Informe Final SOC Nivel 2 - Analisis de Incidentes",
         author="Analista SOC Nivel 2 - AI Incident Analyzer",
     )
@@ -232,8 +232,8 @@ def build_pdf_report(
         "DocTitle",
         parent=styles["Heading1"],
         fontName="Helvetica-Bold",
-        fontSize=17,
-        leading=21,
+        fontSize=15.5,
+        leading=19.5,
         textColor=colors.HexColor("#FFFFFF"),
         alignment=0,
     )
@@ -241,45 +241,54 @@ def build_pdf_report(
         "DocSubtitle",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=9.5,
-        leading=13,
+        fontSize=9.0,
+        leading=12.5,
         textColor=colors.HexColor("#E2E8F0"),
     )
     style_h1 = ParagraphStyle(
         "SecH1",
         parent=styles["Heading2"],
         fontName="Helvetica-Bold",
-        fontSize=12.5,
-        leading=16,
+        fontSize=12.0,
+        leading=15.0,
         textColor=colors.HexColor("#0F172A"),
-        spaceBefore=10,
-        spaceAfter=6,
+        spaceBefore=6,
+        spaceAfter=5,
     )
     style_h2 = ParagraphStyle(
         "SecH2",
         parent=styles["Heading3"],
         fontName="Helvetica-Bold",
-        fontSize=10.5,
-        leading=14,
+        fontSize=10.0,
+        leading=13.0,
         textColor=colors.HexColor("#1E3A8A"),
-        spaceBefore=8,
-        spaceAfter=4,
+        spaceBefore=6,
+        spaceAfter=3,
     )
     style_body = ParagraphStyle(
         "Body",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=9.2,
-        leading=13.2,
+        fontSize=8.9,
+        leading=12.4,
         textColor=colors.HexColor("#1E293B"),
-        spaceAfter=5,
+        spaceAfter=4,
+    )
+    style_tech_body = ParagraphStyle(
+        "TechBody",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8.3,
+        leading=11.2,
+        textColor=colors.HexColor("#1E293B"),
+        spaceAfter=3,
     )
     style_small = ParagraphStyle(
         "SmallCell",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=8.0,
-        leading=10.5,
+        fontSize=7.8,
+        leading=10.2,
         textColor=colors.HexColor("#1E293B"),
     )
     style_small_bold = ParagraphStyle(
@@ -297,14 +306,14 @@ def build_pdf_report(
         "CodeBlock",
         parent=styles["Code"],
         fontName="Courier",
-        fontSize=7.8,
-        leading=10.2,
+        fontSize=7.5,
+        leading=9.6,
         textColor=colors.HexColor("#0F172A"),
         backColor=colors.HexColor("#F1F5F9"),
-        borderPadding=5,
+        borderPadding=4,
         leftIndent=4,
         rightIndent=4,
-        spaceAfter=6,
+        spaceAfter=4,
     )
 
     story = []
@@ -316,7 +325,7 @@ def build_pdf_report(
     # =========================================================================
     banner_html = (
         "<b>INFORME DE AUDITORÍA FORENSE Y RESPUESTA A INCIDENTES (SOC NIVEL 2)</b><br/>"
-        "<font size='9.5' color='#93C5FD'>Análisis Multi-Incidente asistido por IA Generativa, Correlación Heurística y Mapeo MITRE ATT&amp;CK</font>"
+        "<font size='9.2' color='#93C5FD'>Análisis Multi-Incidente asistido por IA Generativa, Correlación Heurística y Mapeo MITRE ATT&amp;CK</font>"
     )
     meta_html = (
         f"<b>Dataset Auditado:</b> SOC_L2_Logs_Ampliados_Multiples_Incidentes.xlsx (Hoja: SIEM Export) &nbsp;|&nbsp; "
@@ -332,25 +341,25 @@ def build_pdf_report(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#0F172A")),
-                ("TOPPADDING", (0, 0), (-1, 0), 12),
-                ("BOTTOMPADDING", (0, -1), (-1, -1), 12),
-                ("LEFTPADDING", (0, 0), (-1, -1), 14),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+                ("TOPPADDING", (0, 0), (-1, 0), 10),
+                ("BOTTOMPADDING", (0, -1), (-1, -1), 10),
+                ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
                 ("LINEBELOW", (0, -1), (-1, -1), 3, colors.HexColor("#DC2626")),
             ]
         )
     )
     story.append(banner_table)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
     # =========================================================================
     # TARJETAS DE MÉTRICAS CLAVE (KPIs)
     # =========================================================================
     kpi_style_num = ParagraphStyle(
-        "KpiNum", parent=style_body, fontName="Helvetica-Bold", fontSize=13, leading=15, alignment=1, textColor=colors.HexColor("#0F172A")
+        "KpiNum", parent=style_body, fontName="Helvetica-Bold", fontSize=12.5, leading=14.5, alignment=1, textColor=colors.HexColor("#0F172A")
     )
     kpi_style_lbl = ParagraphStyle(
-        "KpiLbl", parent=style_small, fontSize=7.5, leading=9.5, alignment=1, textColor=colors.HexColor("#475569")
+        "KpiLbl", parent=style_small, fontSize=7.4, leading=9.2, alignment=1, textColor=colors.HexColor("#475569")
     )
     kpi_data = [
         [
@@ -377,15 +386,15 @@ def build_pdf_report(
                 ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F1F5F9")),
                 ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#CBD5E1")),
                 ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-                ("TOPPADDING", (0, 0), (-1, 0), 7),
-                ("BOTTOMPADDING", (0, 1), (-1, 1), 7),
+                ("TOPPADDING", (0, 0), (-1, 0), 6),
+                ("BOTTOMPADDING", (0, 1), (-1, 1), 6),
                 ("LEFTPADDING", (0, 0), (-1, -1), 4),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 4),
             ]
         )
     )
     story.append(kpi_table)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
     # =========================================================================
     # SECCIÓN 1: INFORME EJECUTIVO (PARA ALTA DIRECCIÓN / C-LEVEL)
@@ -394,27 +403,33 @@ def build_pdf_report(
     for line in exec_text.splitlines():
         clean = escape(line.strip())
         if not clean:
-            story.append(Spacer(1, 3))
+            story.append(Spacer(1, 2))
             continue
-        if clean.startswith(("1.", "2.", "3.", "RESUMEN", "IMPACTO", "DECISIONES", "#")):
+        if clean.startswith(("1. RESUMEN", "2. IMPACTO", "3. DECISIONES", "RESUMEN", "IMPACTO", "DECISIONES", "#")):
             story.append(Paragraph(f"<b>{clean.lstrip('# ').strip()}</b>", style_h2))
         elif clean.startswith(("-", "•", "*")):
             story.append(Paragraph(f"&bull; {clean.lstrip('-•* ').strip()}", style_body))
         else:
             story.append(Paragraph(clean, style_body))
 
-    story.append(Spacer(1, 8))
-
     # =========================================================================
     # SECCIÓN 2: MATRIZ CONSOLIDADA DE RIESGO Y MAPEO MITRE ATT&CK
     # =========================================================================
-    story.append(Paragraph("SECCIÓN 2 — MATRIZ EJECUTIVA DE CLASIFICACIÓN DE RIESGO Y MITRE ATT&CK", style_h1))
+    story.append(PageBreak())
+    story.append(Paragraph("SECCIÓN 2 — MATRIZ EJECUTIVA DE CLASIFICACIÓN DE RIESGO Y MITRE ATT&amp;CK", style_h1))
+    story.append(
+        Paragraph(
+            "La siguiente matriz consolida los 6 incidentes críticos de seguridad y la observación de visibilidad SIEM "
+            "identificados mediante correlación multi-evento sobre los 715 registros del dataset oficial:",
+            style_body,
+        )
+    )
     matrix_rows = [
         [
             Paragraph("ID", style_header_cell),
             Paragraph("Incidente / Hallazgo Detectado", style_header_cell),
             Paragraph("Ventana (UTC)", style_header_cell),
-            Paragraph("Activos y Cuentas", style_header_cell),
+            Paragraph("Activos y Cuentas Involucradas", style_header_cell),
             Paragraph("Técnicas MITRE ATT&amp;CK", style_header_cell),
             Paragraph("Eventos (Info)", style_header_cell),
             Paragraph("Riesgo", style_header_cell),
@@ -427,14 +442,14 @@ def build_pdf_report(
                 Paragraph(f"<b>{escape(f['id'])}</b>", style_small_bold),
                 Paragraph(escape(f["titulo"]), style_small),
                 Paragraph(escape(f["ventana"].replace("2026-10-23 ", "")), style_small),
-                Paragraph(escape(f"{f['activos']} | {f['usuarios'][:48]}"), style_small),
+                Paragraph(escape(f"{f['activos']} | {f['usuarios']}"), style_small),
                 Paragraph(escape(f["mitre"]), style_small),
                 Paragraph(f"{f['eventos_count']} ({f['eventos_ocultos_info']})", style_small),
                 Paragraph(f"<font color='{risk_color}'><b>{escape(f['riesgo'].upper())}</b></font>", style_small_bold),
             ]
         )
 
-    matrix_table = Table(matrix_rows, colWidths=[42, 134, 72, 104, 94, 48, 46], repeatRows=1)
+    matrix_table = Table(matrix_rows, colWidths=[42, 130, 68, 114, 94, 48, 44], repeatRows=1)
     matrix_table.setStyle(
         TableStyle(
             [
@@ -442,8 +457,8 @@ def build_pdf_report(
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#FFFFFF"), colors.HexColor("#F8FAFC")]),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 4.5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4.5),
                 ("LEFTPADDING", (0, 0), (-1, -1), 4),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 4),
             ]
@@ -451,7 +466,7 @@ def build_pdf_report(
     )
     story.append(matrix_table)
 
-    # Salto a Página 2 con el Panel Visual Forense
+    # Salto a Página 3 con el Panel Visual Forense y la Tabla de 12 Eventos Ocultos
     story.append(PageBreak())
     story.append(Paragraph("SECCIÓN 3 — VISUALIZACIÓN ANALÍTICA Y DASHBOARD FORENSE DE TELEMETRÍA", style_h1))
     story.append(
@@ -464,12 +479,12 @@ def build_pdf_report(
         )
     )
     png_bytes = generate_dashboard_chart_png(df, output_path=chart_output_path)
-    img_flowable = Image(io.BytesIO(png_bytes), width=535, height=363)
+    img_flowable = Image(io.BytesIO(png_bytes), width=516, height=324)
     story.append(img_flowable)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 6))
 
     # =========================================================================
-    # TABLA DE AUDITORÍA DE "TRAMPAS DE NIVEL 2" (EVENTOS CRÍTICOS EN INFORMATIONAL)
+    # TABLA DE AUDITORÍA DE EVENTOS CRÍTICOS EN INFORMATIONAL
     # =========================================================================
     story.append(
         Paragraph(
@@ -488,7 +503,7 @@ def build_pdf_report(
     hidden_rows = [
         [
             Paragraph("Log_ID", style_header_cell),
-            Paragraph("Timestamp", style_header_cell),
+            Paragraph("Hora UTC", style_header_cell),
             Paragraph("Incidente", style_header_cell),
             Paragraph("Host", style_header_cell),
             Paragraph("Event_ID", style_header_cell),
@@ -516,7 +531,7 @@ def build_pdf_report(
             ]
         )
     if len(hidden_rows) > 1:
-        hidden_table = Table(hidden_rows, colWidths=[50, 48, 48, 52, 48, 72, 64, 158], repeatRows=1)
+        hidden_table = Table(hidden_rows, colWidths=[50, 48, 46, 58, 46, 72, 62, 158], repeatRows=1)
         hidden_table.setStyle(
             TableStyle(
                 [
@@ -524,8 +539,8 @@ def build_pdf_report(
                     ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#EFF6FF"), colors.HexColor("#FFFFFF")]),
                     ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#BFDBFE")),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("TOPPADDING", (0, 0), (-1, -1), 3.5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2.8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2.8),
                     ("LEFTPADDING", (0, 0), (-1, -1), 4),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 4),
                 ]
@@ -539,7 +554,7 @@ def build_pdf_report(
     story.append(PageBreak())
     story.append(
         Paragraph(
-            "SECCIÓN 4 — INFORME TÉCNICO DETALLADO (EVIDENCIA FORENSE, IOCs, MITRE ATT&CK Y REMEDIACIÓN)",
+            "SECCIÓN 4 — INFORME TÉCNICO DETALLADO (EVIDENCIA FORENSE, IOCs, MITRE ATT&amp;CK Y REMEDIACIÓN)",
             style_h1,
         )
     )
@@ -563,8 +578,8 @@ def build_pdf_report(
                 [
                     ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(badge_bg)),
                     ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor(badge_fg)),
-                    ("TOPPADDING", (0, 0), (-1, -1), 5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
                     ("LEFTPADDING", (0, 0), (-1, -1), 8),
                 ]
             )
@@ -577,8 +592,8 @@ def build_pdf_report(
             f"<b>Cuentas:</b> {escape(f['usuarios'])}<br/>"
             f"<b>Mapeo MITRE ATT&amp;CK:</b> {escape(f['mitre'])}<br/>"
             f"<b>Indicadores de Compromiso (IoCs):</b> {escape(f['ioc'])}<br/>"
-            f"<b>Registros de Evidencia (Log_IDs):</b> {escape(f['evidencia_logs'])}<br/><br/>"
-            f"<b>Análisis Forense Detallado:</b><br/>{escape(f['resumen_tecnico'])}<br/><br/>"
+            f"<b>Registros de Evidencia (Log_IDs):</b> {escape(f['evidencia_logs'])}<br/>"
+            f"<b>Análisis Forense Detallado:</b> {escape(f['resumen_tecnico'])}<br/>"
             f"<b>Plan de Contención y Remediación Paso a Paso:</b><br/>"
             + "<br/>".join(escape(line) for line in f["remediacion"].splitlines())
         )
@@ -590,10 +605,10 @@ def build_pdf_report(
         inc_block = KeepTogether(
             [
                 header_box,
-                Spacer(1, 4),
-                Paragraph(details_html, style_body),
+                Spacer(1, 3),
+                Paragraph(details_html, style_tech_body),
                 cmd_paragraph,
-                Spacer(1, 8),
+                Spacer(1, 6),
             ]
         )
         story.append(inc_block)

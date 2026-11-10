@@ -34,8 +34,8 @@ REQUIRED_COLUMNS = [
 def validate_and_prepare_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     """
     Valida que el DataFrame no esté vacío y contenga las columnas requeridas del SIEM.
-    Aplica la Ley de Postel: acepta variaciones de mayúsculas/espacios en cabeceras
-    y rellena columnas faltantes no críticas advirtiendo al analista.
+    Acepta variaciones de mayúsculas/espacios en cabeceras y rellena columnas
+    opcionales faltantes advirtiendo al analista.
     """
     if df is None or df.empty:
         raise SIEMValidationError("El archivo Excel o la hoja seleccionada no contiene registros (0 filas).")
@@ -75,9 +75,8 @@ def validate_and_prepare_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List
 
 def normalize_siem_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
-    Limpia y normaliza el DataFrame del SIEM aplicando la Ley de Postel
-    (liberal en lo que acepta: espacios, nombres de columnas, tipos mixtos;
-    conservador y estricto en lo que emite para PyArrow y el motor forense).
+    Limpia y normaliza el DataFrame del SIEM: estandariza cadenas, convierte tipos
+    mixtos para compatibilidad con PyArrow y unifica alias de hostnames y cuentas.
     """
     df, schema_warnings = validate_and_prepare_dataframe(df)
 

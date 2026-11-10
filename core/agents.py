@@ -1,7 +1,7 @@
 """
 Módulo de Orquestación de Agentes de Inteligencia Artificial Generativa (SOC Nivel 2).
 Implementa tres roles especializados:
-1. Agente Clasificador de Triage y Mapeo MITRE ATT&CK (Esquemas Pydantic).
+1. Agente Clasificador de Triage y Mapeo MITRE ATT&CK.
 2. Agente Redactor Ejecutivo (Enfoque C-Level / Junta Directiva / Impacto de Negocio).
 3. Agente Redactor Forense Técnico (Enfoque DFIR / SOC Nivel 2 / Contención e IoCs).
 Soporta Ollama Local, APIs compatibles con OpenAI/Groq/Gemini y Motor Determinista Offline.
@@ -11,21 +11,6 @@ from __future__ import annotations
 import json
 from typing import List, Dict, Any, Tuple
 import requests
-from pydantic import BaseModel, Field
-
-
-class IncidentClassification(BaseModel):
-    incident_id: str = Field(description="Identificador del incidente (ej. INC-01)")
-    titulo: str = Field(description="Título descriptivo del incidente")
-    riesgo: str = Field(description="Nivel de riesgo: Alto, Medio o Bajo")
-    mitre_techniques: List[str] = Field(description="Lista de técnicas MITRE ATT&CK detectadas")
-    justificacion_riesgo: str = Field(description="Explicación concisa del nivel de riesgo asignado")
-
-
-class SOCReportBundle(BaseModel):
-    executive_report: str = Field(description="Informe Ejecutivo completo en español para Alta Dirección")
-    technical_report: str = Field(description="Informe Técnico Forense detallado para ingeniería SOC L2 y DFIR")
-    classifications: List[IncidentClassification] = Field(default_factory=list)
 
 
 def get_available_ollama_models(base_url: str = "http://localhost:11434") -> List[str]:
@@ -79,14 +64,14 @@ def build_deterministic_reports(
         "código no autorizado cada 6 minutos (INC-05), además del compromiso de la cuenta CORP\\mgarcia tras un ataque de "
         "Password Spraying contra el Controlador de Dominio DC-01 (INC-01).\n\n"
         "3. DECISIONES EJECUTIVAS Y PLAN DE ACCIÓN INMEDIATO (0 A 24 HORAS)\n"
-        "1. Autorizar Contención de Red Inmediata: Aislar de forma preventiva los servidores APP-SRV01 y WEB-01, así como "
-        "las estaciones de trabajo WS-023 (pre-ransomware) y WS-018 (fuga de documentos legales).\n"
-        "2. Activar el Comité de Crisis Legal y Regulatoria: Evaluar el impacto contractual y de protección de datos derivado "
-        f"de la exfiltración de 'Budget2027.xlsx' y de los {exfil_mib:.2f} MiB del repositorio Legal, preservando WS-018 bajo "
-        "cadena de custodia forense.\n"
-        "3. Revocación Masiva de Credenciales y Cierre de Brechas Perimetrales: Forzar el cambio de contraseñas de CORP\\admin, "
-        "CORP\\mgarcia, CORP\\backupsvc, CORP\\rrojas y CORP\\helpdesk; eliminar la exposición directa de Escritorio Remoto (RDP) "
-        "a Internet e implementar Autenticación Multifactor (MFA) obligatoria."
+        "- Acción 1 — Autorizar Contención de Red Inmediata: Aislar de forma preventiva los servidores APP-SRV01 y WEB-01, "
+        "así como las estaciones de trabajo WS-023 (pre-ransomware) y WS-018 (fuga de documentos legales).\n"
+        "- Acción 2 — Activar el Comité de Crisis Legal y Regulatoria: Evaluar el impacto contractual y de protección de datos "
+        f"derivado de la exfiltración de 'Budget2027.xlsx' y de los {exfil_mib:.2f} MiB del repositorio Legal, preservando WS-018 "
+        "bajo cadena de custodia forense.\n"
+        "- Acción 3 — Revocación Masiva de Credenciales y Cierre de Brechas Perimetrales: Forzar el cambio de contraseñas de "
+        "CORP\\admin, CORP\\mgarcia, CORP\\backupsvc, CORP\\rrojas y CORP\\helpdesk; eliminar la exposición directa de Escritorio "
+        "Remoto (RDP) a Internet e implementar Autenticación Multifactor (MFA) obligatoria."
     )
 
     tech_blocks = [
@@ -234,4 +219,3 @@ Genera DOS informes exhaustivos en español profesional separados exactamente po
             det_tech,
             f"Modo Respaldo Forense Activo (No se detectó endpoint en '{api_url}': {type(exc).__name__}). Se generaron los informes completos verificados.",
         )
-

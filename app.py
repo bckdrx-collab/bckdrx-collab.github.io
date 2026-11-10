@@ -317,13 +317,36 @@ with st.sidebar:
             type=["xlsx", "xls"],
             help="Valida las 11 columnas canónicas del SIEM y normaliza activos (DC-01/DC01) y usuarios.",
         )
+
+        available_presets = {
+            "📁 Dataset Oficial Bootcamp SOC L2 (715 logs)": "SOC_L2_Logs_Ampliados_Multiples_Incidentes.xlsx",
+            "🎯 Simulacro APT29 / Cozy Bear (471 logs)": "SOC_L2_Simulacro_APT29_RedTeam.xlsx",
+            "🚨 Simulacro Ransomware BlackCat & Sabotaje VSS (406 logs)": "SOC_L2_Simulacro_Ransomware_BlackCat.xlsx",
+            "🕵️ Simulacro Webshell IIS & Explotación RCE (383 logs)": "SOC_L2_Simulacro_Insider_Threat_Webshell.xlsx",
+        }
+        available_presets = {k: v for k, v in available_presets.items() if os.path.exists(v)}
+
         use_default = False
-        if uploaded_file is None and os.path.exists(DEFAULT_EXCEL):
-            use_default = st.checkbox(
-                "Dataset Oficial Precargado (715 logs)",
-                value=True,
-                help=f"Analiza en vivo {DEFAULT_EXCEL} (Hoja SIEM Export).",
+        selected_preset_file = DEFAULT_EXCEL
+        if uploaded_file is None and available_presets:
+            preset_choice = st.selectbox(
+                "O selecciona un Dataset de Prueba:",
+                options=list(available_presets.keys()),
+                index=0,
+                help="Elige entre diferentes escenarios reales de ciberataque para auditar el comportamiento autónomo del motor SOC L2.",
             )
+            selected_preset_file = available_presets[preset_choice]
+            use_default = True
+
+            with open(selected_preset_file, "rb") as f_dl:
+                st.download_button(
+                    "📥 Descargar este .xlsx de prueba",
+                    data=f_dl.read(),
+                    file_name=selected_preset_file,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    width="stretch",
+                    key="dl_active_sample_xlsx",
+                )
 
     with st.container(border=True):
         st.markdown("**🔗 2. Orquestador LangChain LCEL**")
@@ -352,31 +375,15 @@ with st.sidebar:
             api_key = ""
             st.caption("🟢 `RunnableParallel` + `StrOutputParser` activos con precisión 100% verificada.")
 
-    if "contained_incidents" not in st.session_state:
-        st.session_state["contained_incidents"] = {
-            f"INC-0{i}": False for i in range(1, 7)
-        }
-
-    with st.container(border=True):
-        st.markdown("**🛡️ 3. Estado de Contención SOAR**")
-        for inc_key in list(st.session_state["contained_incidents"].keys()):
-            st.session_state["contained_incidents"][inc_key] = st.checkbox(
-                f"Playbook ejecutado: {inc_key}",
-                value=st.session_state["contained_incidents"][inc_key],
-                key=f"chk_{inc_key}",
-            )
-        done_count = sum(1 for v in st.session_state["contained_incidents"].values() if v)
-        st.progress(done_count / 6.0, text=f"{done_count}/6 Incidentes Contenidos")
-
 # =====================================================================
 # CARGA Y VALIDACIÓN DEFENSIVA DE TELEMETRÍA SIEM
 # =====================================================================
 if uploaded_file is not None:
     active_source: bytes | str | None = uploaded_file.getvalue()
     source_id = f"upload:{uploaded_file.name}:{len(active_source)}"
-elif use_default and os.path.exists(DEFAULT_EXCEL):
-    active_source = DEFAULT_EXCEL
-    source_id = f"default:{DEFAULT_EXCEL}"
+elif use_default and os.path.exists(selected_preset_file):
+    active_source = selected_preset_file
+    source_id = f"preset:{selected_preset_file}"
 else:
     active_source = None
     source_id = ""
@@ -402,6 +409,25 @@ except SIEMValidationError as val_err:
 except Exception as exc:
     st.error(f"❌ **No se pudo procesar el archivo Excel:** `{type(exc).__name__}: {exc}`")
     st.stop()
+
+# Sincronización dinámica de incidentes contenidos según los hallazgos del dataset
+active_inc_keys = [f["id"] for f in findings if f["id"].startswith("INC-")]
+if "contained_incidents" not in st.session_state or st.session_state.get("last_inc_keys") != active_inc_keys:
+    st.session_state["contained_incidents"] = {k: False for k in active_inc_keys}
+    st.session_state["last_inc_keys"] = active_inc_keys
+
+with st.sidebar:
+    with st.container(border=True):
+        st.markdown("**🛡️ 3. Estado de Contención SOAR**")
+        for inc_key in active_inc_keys:
+            st.session_state["contained_incidents"][inc_key] = st.checkbox(
+                f"Playbook ejecutado: {inc_key}",
+                value=st.session_state["contained_incidents"].get(inc_key, False),
+                key=f"chk_{inc_key}_{source_id}",
+            )
+        done_count = sum(1 for v in st.session_state["contained_incidents"].values() if v)
+        total_inc_target = max(1, len(active_inc_keys))
+        st.progress(done_count / float(total_inc_target), text=f"{done_count}/{total_inc_target} Incidentes Contenidos")
 
 for warn_msg in summary_metrics["normalization"].get("schema_warnings", []):
     st.warning(f"ℹ️ **Aviso de Esquema SIEM:** {warn_msg}")
@@ -519,7 +545,7 @@ st.markdown(
         </div>
         <div class="jev-bento-card">
             <div class="jev-bento-label">05 // ESTADO SOAR & LANGCHAIN</div>
-            <div class="jev-bento-value">{done_inc}/6 <span style="font-size:0.95rem;color:#10B981;">contenidos</span></div>
+            <div class="jev-bento-value">{done_inc}/{len(active_inc_keys)} <span style="font-size:0.95rem;color:#10B981;">contenidos</span></div>
             <div class="jev-bento-sub" style="color:#C4B5FD;">🔗 Grafo LCEL Activo ({model_name})</div>
         </div>
     </div>
@@ -674,7 +700,7 @@ if show_all or workspace_mode == "🎯 Radar de Incidentes & Kill Chain":
         with r_col2:
             inc_focus = st.selectbox(
                 "Inspección Rápida de Incidente:",
-                options=["Todos los Hallazgos (6 Críticos + 1 Medio)"] + [f"{f['id']} — {f['titulo']}" for f in findings],
+                options=[f"Todos los Hallazgos ({len(findings)} Detectados)"] + [f"{f['id']} — {f['titulo']}" for f in findings],
                 label_visibility="collapsed",
             )
 

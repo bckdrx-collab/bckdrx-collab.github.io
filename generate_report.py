@@ -841,6 +841,23 @@ def build_static_web_portal(
         <div id="datasetStatusBadge" style="font-size:0.74rem;color:var(--neon-emerald);margin-top:0.45rem;font-weight:600;">
           ✓ Activo: SIEM Export (715 logs validados)
         </div>
+        <div style="margin-top:0.65rem;padding-top:0.5rem;border-top:1px solid rgba(255,255,255,0.08);font-size:0.72rem;">
+          <div style="color:var(--neon-cyan);font-weight:700;margin-bottom:0.35rem;">📦 Datasets de Prueba (.xlsx):</div>
+          <div style="display:flex;flex-direction:column;gap:0.3rem;">
+            <a href="SOC_L2_Logs_Ampliados_Multiples_Incidentes.xlsx" download style="color:#94A3B8;text-decoration:none;display:flex;align-items:center;gap:0.3rem;">
+              <span>📁</span> <span>Oficial Bootcamp (715 logs)</span>
+            </a>
+            <a href="SOC_L2_Simulacro_APT29_RedTeam.xlsx" download style="color:#FBBF24;text-decoration:none;display:flex;align-items:center;gap:0.3rem;">
+              <span>🎯</span> <span>Simulacro APT29 (471 logs)</span>
+            </a>
+            <a href="SOC_L2_Simulacro_Ransomware_BlackCat.xlsx" download style="color:#FF2A5F;text-decoration:none;display:flex;align-items:center;gap:0.3rem;">
+              <span>🚨</span> <span>Ransomware BlackCat (406 logs)</span>
+            </a>
+            <a href="SOC_L2_Simulacro_Insider_Threat_Webshell.xlsx" download style="color:#10B981;text-decoration:none;display:flex;align-items:center;gap:0.3rem;">
+              <span>🕵️</span> <span>Webshell IIS & RCE (383 logs)</span>
+            </a>
+          </div>
+        </div>
       </div>
 
       <div class="dock-card">

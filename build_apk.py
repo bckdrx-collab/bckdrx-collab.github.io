@@ -82,6 +82,10 @@ def main():
     android:versionCode="3"
     android:versionName="3.0-LCEL-MobileTablet">
 
+    <uses-sdk
+        android:minSdkVersion="21"
+        android:targetSdkVersion="34" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
@@ -134,6 +138,10 @@ def main():
             str(android_jar),
             "--manifest",
             str(manifest_path),
+            "--min-sdk-version",
+            "21",
+            "--target-sdk-version",
+            "34",
             "-A",
             str(assets_dir),
             "--java",
@@ -194,6 +202,11 @@ public class MainActivity extends Activity {
             window.setStatusBarColor(Color.parseColor("#040711"));
             window.setNavigationBarColor(Color.parseColor("#040711"));
         }
+
+        try {
+            android.os.StrictMode.VmPolicy.Builder b = new android.os.StrictMode.VmPolicy.Builder();
+            android.os.StrictMode.setVmPolicy(b.build());
+        } catch (Exception ignored) {}
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.parseColor("#040711"));
@@ -397,7 +410,7 @@ public class MainActivity extends Activity {
             "--lib",
             str(android_jar),
             "--min-api",
-            "26",
+            "21",
             "--output",
             str(work_dir),
         ]
@@ -456,6 +469,12 @@ public class MainActivity extends Activity {
             "androiddebugkey",
             "--key-pass",
             "pass:android",
+            "--v1-signing-enabled",
+            "true",
+            "--v2-signing-enabled",
+            "true",
+            "--v3-signing-enabled",
+            "true",
             "--out",
             str(final_apk),
             str(aligned_apk),

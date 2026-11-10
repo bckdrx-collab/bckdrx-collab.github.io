@@ -15,7 +15,7 @@ def main():
     root_dir = Path(__file__).resolve().parent
     android_sdk = Path(os.environ.get("LOCALAPPDATA", "")) / "Android" / "Sdk"
     build_tools = android_sdk / "build-tools" / "35.0.0"
-    android_jar = android_sdk / "platforms" / "android-34" / "android.jar"
+    android_jar = android_sdk / "platforms" / "android-36" / "android.jar"
 
     aapt2 = build_tools / "aapt2.exe"
     d8 = build_tools / "d8.bat"
@@ -83,8 +83,8 @@ def main():
     android:versionName="3.0-LCEL-MobileTablet">
 
     <uses-sdk
-        android:minSdkVersion="21"
-        android:targetSdkVersion="34" />
+        android:minSdkVersion="26"
+        android:targetSdkVersion="35" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -101,7 +101,8 @@ def main():
         android:icon="@drawable/ic_launcher"
         android:hardwareAccelerated="true"
         android:resizeableActivity="true"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
         <activity
             android:name="com.jev.socl2.command.MainActivity"
@@ -139,9 +140,9 @@ def main():
             "--manifest",
             str(manifest_path),
             "--min-sdk-version",
-            "21",
+            "26",
             "--target-sdk-version",
-            "34",
+            "35",
             "-A",
             str(assets_dir),
             "--java",
@@ -410,7 +411,7 @@ public class MainActivity extends Activity {
             "--lib",
             str(android_jar),
             "--min-api",
-            "21",
+            "26",
             "--output",
             str(work_dir),
         ]

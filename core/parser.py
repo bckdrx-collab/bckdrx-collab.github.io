@@ -188,7 +188,18 @@ def analyze_siem_logs(raw_df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict[str
     hidden_df = df[df["Hidden_Critical_Info"]].copy()
     hidden_events_list = (
         hidden_df[
-            ["Log_ID", "Timestamp", "Hostname", "Event_ID", "User", "Source_IP", "Destination", "Process_CommandLine", "Incident_ID"]
+            [
+                "Log_ID",
+                "Timestamp",
+                "Hostname",
+                "Event_ID",
+                "Event_Description",
+                "User",
+                "Source_IP",
+                "Destination",
+                "Process_CommandLine",
+                "Incident_ID",
+            ]
         ]
         .astype(object)
         .where(pd.notnull(hidden_df), "-")

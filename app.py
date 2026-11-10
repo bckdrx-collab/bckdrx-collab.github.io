@@ -1,8 +1,8 @@
 """
-Aplicación Principal Streamlit — Analizador de Incidentes SOC Nivel 2 con IA Generativa.
-Procesa exportaciones SIEM en Excel (.xlsx), ejecuta correlación heurística multi-etapa,
-identifica eventos críticos ocultos bajo severidad 'Informational' y genera el Informe
-Oficial en PDF (Ejecutivo C-Level + Técnico Forense DFIR con mapeo MITRE ATT&CK).
+JEV // SOC L2 Cyber Command OS — Plataforma Fluida de Análisis Forense SIEM & Orquestación LangChain LCEL.
+Procesa exportaciones SIEM en Excel (.xlsx), ejecuta correlación multi-etapa sobre 715 eventos,
+destapa 12 eventos críticos ocultos en severidad 'Informational', integra un Copiloto Forense
+interactivo con LangChain (LCEL RunnableParallel & ChatPromptTemplate) y compila el Informe Oficial PDF.
 Soporta ejecución directa tanto con `streamlit run app.py` como con `python app.py`.
 """
 
@@ -11,10 +11,14 @@ import io
 import os
 import sys
 import time
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, module="langchain_core")
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+
 import streamlit as st
 from streamlit.runtime import exists as st_runtime_exists
 
-# Si el usuario ejecuta `python app.py` directamente, relanzar automáticamente bajo `streamlit run`
 if __name__ == "__main__" and not st_runtime_exists():
     from streamlit.web import cli as stcli
     sys.argv = ["streamlit", "run", os.path.abspath(__file__)]
@@ -24,12 +28,17 @@ import pandas as pd
 import plotly.express as px
 
 from core.parser import analyze_siem_logs, SIEMValidationError
-from core.agents import generate_ai_reports, get_available_ollama_models
+from core.agents import (
+    generate_ai_reports,
+    get_available_ollama_models,
+    get_langchain_pipeline_metadata,
+    ask_jev_copilot,
+)
 from core.pdf_generator import build_pdf_report
 
 st.set_page_config(
-    page_title="SOC L2 — AI Incident Analyzer & DFIR Dashboard",
-    page_icon="🛡️",
+    page_title="JEV // SOC L2 Cyber Command — LangChain SIEM Analyzer",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -73,96 +82,212 @@ def cached_compile_pdf(exec_text: str, tech_text: str, findings, summary_metrics
 
 
 # =====================================================================
-# ESTILOS VISUALES DEL DASHBOARD SOC NIVEL 2
+# DISEÑO FLUIDO "JEV CYBER COMMAND OS" (BENTO GRID + GLASSMORPHISM)
 # =====================================================================
 st.markdown(
     """
     <style>
-    .soc-hero {
-        background: linear-gradient(100deg, #090d16 0%, #0f172a 55%, #450a0a 100%);
-        color: #f8fafc;
-        padding: 1.2rem 1.5rem;
-        border-radius: 14px;
-        border: 1px solid #334155;
-        border-left: 6px solid #ef4444;
-        margin-bottom: 0.85rem;
-        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+    .block-container {
+        padding-top: 1.2rem !important;
+        padding-bottom: 2.5rem !important;
+        max-width: 100% !important;
     }
-    .soc-hero-title {
-        margin: 0;
-        font-size: 1.55rem;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-        color: #ffffff;
+
+    /* HUD Hero Fluid Header */
+    .jev-hud-header {
+        background: radial-gradient(circle at 85% 15%, rgba(0, 240, 255, 0.16) 0%, rgba(139, 92, 246, 0.12) 35%, rgba(6, 10, 21, 0.96) 80%),
+                    linear-gradient(135deg, #050811 0%, #0B132B 60%, #111827 100%);
+        border: 1px solid rgba(0, 240, 255, 0.28);
+        border-radius: 18px;
+        padding: clamp(1.1rem, 2vw, 1.65rem);
+        color: #F8FAFC;
+        box-shadow: 0 14px 36px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        margin-bottom: 1rem;
+        position: relative;
+        overflow: hidden;
     }
-    .soc-hero-sub {
-        margin: 0.3rem 0 0 0;
-        font-size: 0.9rem;
-        color: #cbd5e1;
-    }
-    .soc-pill-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        margin-top: 0.65rem;
-    }
-    .soc-pill {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        color: #e2e8f0;
-        padding: 0.2rem 0.65rem;
-        border-radius: 999px;
-        font-size: 0.76rem;
-        font-weight: 600;
-    }
-    .soc-pill-alert {
-        background: rgba(239, 68, 68, 0.22);
-        border: 1px solid #f87171;
-        color: #fecaca;
-    }
-    .soc-pill-info-trap {
-        background: rgba(37, 99, 235, 0.25);
-        border: 1px solid #60a5fa;
-        color: #bfdbfe;
-    }
-    .evasion-alert {
-        background: linear-gradient(90deg, #eff6ff 0%, #dbeafe 100%);
-        border: 1px solid #60a5fa;
-        border-left: 6px solid #2563eb;
-        color: #1e3a8a;
-        padding: 0.85rem 1.1rem;
-        border-radius: 10px;
-        margin-bottom: 0.9rem;
-        font-size: 0.9rem;
-    }
-    .killchain-track {
+    .jev-badge-row {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 0.35rem;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        padding: 0.55rem 0.85rem;
-        border-radius: 8px;
-        margin: 0.4rem 0 0.7rem 0;
-        font-size: 0.82rem;
+        gap: 0.5rem;
+        margin-bottom: 0.55rem;
     }
-    .killchain-step {
-        background: #0f172a;
-        color: #f8fafc;
-        padding: 0.2rem 0.6rem;
-        border-radius: 6px;
+    .jev-tag {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.73rem;
+        font-weight: 600;
+        padding: 0.22rem 0.65rem;
+        border-radius: 999px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+    .jev-tag-cyan {
+        background: rgba(0, 240, 255, 0.14);
+        border: 1px solid rgba(0, 240, 255, 0.45);
+        color: #67E8F9;
+    }
+    .jev-tag-purple {
+        background: rgba(139, 92, 246, 0.18);
+        border: 1px solid rgba(167, 139, 250, 0.45);
+        color: #DDD6FE;
+    }
+    .jev-tag-crimson {
+        background: rgba(255, 42, 95, 0.18);
+        border: 1px solid rgba(255, 42, 95, 0.5);
+        color: #FECDD3;
+    }
+    .jev-tag-emerald {
+        background: rgba(16, 185, 129, 0.16);
+        border: 1px solid rgba(52, 211, 153, 0.45);
+        color: #A7F3D0;
+    }
+    .jev-title {
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
+        font-size: clamp(1.35rem, 2.2vw, 1.95rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin: 0;
+        background: linear-gradient(90deg, #FFFFFF 0%, #67E8F9 55%, #C4B5FD 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .jev-subtitle {
+        font-size: 0.9rem;
+        color: #94A3B8;
+        margin-top: 0.35rem;
+    }
+
+    /* Bento Fluid KPI Grid */
+    .jev-bento-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+        gap: 0.85rem;
+        margin-bottom: 1.05rem;
+    }
+    .jev-bento-card {
+        background: linear-gradient(160deg, rgba(15, 23, 42, 0.94) 0%, rgba(9, 13, 26, 0.98) 100%);
+        border: 1px solid rgba(56, 189, 248, 0.22);
+        border-radius: 15px;
+        padding: 1rem 1.15rem;
+        color: #F8FAFC;
+        transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+        box-shadow: 0 6px 20px rgba(2, 6, 23, 0.22);
+    }
+    .jev-bento-card:hover {
+        transform: translateY(-2px);
+        border-color: rgba(0, 240, 255, 0.55);
+        box-shadow: 0 10px 26px rgba(0, 240, 255, 0.12);
+    }
+    .jev-bento-label {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #94A3B8;
+        margin-bottom: 0.3rem;
+    }
+    .jev-bento-value {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.65rem;
+        font-weight: 700;
+        color: #F8FAFC;
+        line-height: 1.15;
+    }
+    .jev-bento-sub {
+        font-size: 0.77rem;
+        margin-top: 0.35rem;
+        font-weight: 500;
+    }
+
+    /* LangChain LCEL Pipeline Flow */
+    .lcel-flow-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 0.75rem;
+        margin: 0.65rem 0 0.95rem 0;
+    }
+    .lcel-node {
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid rgba(139, 92, 246, 0.35);
+        border-left: 4px solid #8B5CF6;
+        border-radius: 12px;
+        padding: 0.8rem 0.95rem;
+        color: #E2E8F0;
+    }
+    .lcel-node-title {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #C4B5FD;
+    }
+    .lcel-node-type {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.68rem;
+        color: #38BDF8;
+        margin-bottom: 0.25rem;
+    }
+    .lcel-node-desc {
+        font-size: 0.78rem;
+        color: #94A3B8;
+        line-height: 1.4;
+    }
+
+    /* Fluid Kill Chain Track */
+    .jev-killchain {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem;
+        background: linear-gradient(90deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9));
+        border: 1px solid rgba(56, 189, 248, 0.28);
+        padding: 0.65rem 0.95rem;
+        border-radius: 12px;
+        margin: 0.45rem 0 0.8rem 0;
+    }
+    .jev-kc-step {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.76rem;
+        background: rgba(0, 240, 255, 0.12);
+        border: 1px solid rgba(0, 240, 255, 0.35);
+        color: #E0F2FE;
+        padding: 0.22rem 0.62rem;
+        border-radius: 8px;
         font-weight: 600;
     }
-    .killchain-arrow {
-        color: #dc2626;
+    .jev-kc-arrow {
+        color: #F43F5E;
         font-weight: 800;
+        font-size: 0.9rem;
     }
+
+    /* Evasion Banner */
+    .jev-trap-banner {
+        background: linear-gradient(90deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 58, 138, 0.88) 100%);
+        border: 1px solid rgba(56, 189, 248, 0.4);
+        border-left: 5px solid #00F0FF;
+        color: #E2E8F0;
+        padding: 0.9rem 1.15rem;
+        border-radius: 14px;
+        margin-bottom: 1rem;
+        font-size: 0.88rem;
+    }
+    .jev-trap-banner code {
+        color: #67E8F9;
+        background: rgba(0, 0, 0, 0.35);
+        padding: 0.1rem 0.35rem;
+        border-radius: 5px;
+    }
+
     div.stDownloadButton > button, div.stButton > button[kind="primary"] {
-        min-height: 3.05rem;
+        min-height: 2.95rem;
         font-weight: 700 !important;
-        letter-spacing: 0.01em;
-        border-radius: 10px !important;
+        border-radius: 12px !important;
     }
     </style>
     """,
@@ -170,57 +295,55 @@ st.markdown(
 )
 
 # =====================================================================
-# BARRA LATERAL: INGESTA SIEM, AGENTES IA Y CHECKLIST DE CONTENCIÓN
+# BARRA LATERAL: CENTRO DE CONTROL JEV + LANGCHAIN + CONTENCIÓN
 # =====================================================================
 DEFAULT_EXCEL = "SOC_L2_Logs_Ampliados_Multiples_Incidentes.xlsx"
 
 with st.sidebar:
-    st.markdown("### 🛡️ Panel de Control SOC L2")
-    st.caption("Análisis Forense SIEM & Respuesta a Incidentes")
+    st.markdown("### ⚡ JEV // Cyber Command")
+    st.caption("LangChain LCEL · SOC Nivel 2 · DFIR")
 
     with st.container(border=True):
         st.markdown("**📂 1. Ingesta de Telemetría SIEM**")
         uploaded_file = st.file_uploader(
-            "Subir archivo Excel (.xlsx)",
+            "Cargar archivo SIEM (.xlsx)",
             type=["xlsx", "xls"],
-            help="Acepta cualquier exportación .xlsx del SIEM, valida el esquema y normaliza hostnames y cuentas.",
+            help="Valida las 11 columnas canónicas del SIEM y normaliza activos (DC-01/DC01) y usuarios.",
         )
         use_default = False
         if uploaded_file is None and os.path.exists(DEFAULT_EXCEL):
             use_default = st.checkbox(
-                "Usar dataset oficial precargado",
+                "Dataset Oficial Precargado (715 logs)",
                 value=True,
-                help=f"Carga automáticamente {DEFAULT_EXCEL} (715 eventos).",
+                help=f"Analiza en vivo {DEFAULT_EXCEL} (Hoja SIEM Export).",
             )
 
     with st.container(border=True):
-        st.markdown("**🤖 2. Motor de Agentes IA**")
+        st.markdown("**🔗 2. Orquestador LangChain LCEL**")
         provider = st.selectbox(
-            "Modo de Inferencia",
+            "Backend del Grafo LangChain",
             [
-                "Motor Forense Determinista + Plantilla IA (Instantáneo / Offline)",
-                "Ollama Local (LLM en tu equipo)",
-                "OpenAI / Groq / Gemini Compatible API",
+                "LangChain LCEL + Motor Forense Determinista (Instantáneo / Offline)",
+                "LangChain + Ollama Local (LLM en tu equipo)",
+                "LangChain + ChatOpenAI (OpenAI / Groq / Gemini API)",
             ],
-            help="Selecciona un modelo local en Ollama, una API externa o el motor forense determinista integrado.",
+            help="Ejecuta las cadenas `ChatPromptTemplate | Runnable | StrOutputParser()` de LangChain.",
         )
 
-        if provider == "Ollama Local (LLM en tu equipo)":
-            with st.expander("⚙️ Parámetros de Ollama Local", expanded=True):
-                api_url = st.text_input("Endpoint Ollama", value="http://localhost:11434")
-                local_models = get_available_ollama_models(api_url)
-                model_name = st.selectbox("Modelo detectado", options=local_models)
-                api_key = ""
-        elif provider == "OpenAI / Groq / Gemini Compatible API":
-            with st.expander("⚙️ Parámetros de API Externa", expanded=True):
-                api_url = st.text_input("Endpoint API (v1)", value="https://api.openai.com/v1")
-                model_name = st.text_input("Modelo", value="gpt-4o-mini")
-                api_key = st.text_input("API Key", type="password")
+        if "Ollama" in provider:
+            api_url = st.text_input("Endpoint Ollama", value="http://localhost:11434")
+            local_models = get_available_ollama_models(api_url)
+            model_name = st.selectbox("Modelo Local", options=local_models)
+            api_key = ""
+        elif "OpenAI" in provider:
+            api_url = st.text_input("Base URL API (v1)", value="https://api.openai.com/v1")
+            model_name = st.text_input("Modelo ChatOpenAI", value="gpt-4o-mini")
+            api_key = st.text_input("API Key", type="password")
         else:
             api_url = ""
-            model_name = "soc-l2-forensic-engine-v2"
+            model_name = "jev-soc-l2-lcel-v3"
             api_key = ""
-            st.caption("⚡ Motor forense determinista activo (100% verificado contra los 715 eventos).")
+            st.caption("🟢 `RunnableParallel` + `StrOutputParser` activos con precisión 100% verificada.")
 
     if "contained_incidents" not in st.session_state:
         st.session_state["contained_incidents"] = {
@@ -228,11 +351,10 @@ with st.sidebar:
         }
 
     with st.container(border=True):
-        st.markdown("**✅ 3. Seguimiento de Contención IR**")
-        st.caption("Marca cada incidente conforme se ejecute su Playbook de contención:")
+        st.markdown("**🛡️ 3. Estado de Contención SOAR**")
         for inc_key in list(st.session_state["contained_incidents"].keys()):
             st.session_state["contained_incidents"][inc_key] = st.checkbox(
-                f"Contener {inc_key}",
+                f"Playbook ejecutado: {inc_key}",
                 value=st.session_state["contained_incidents"][inc_key],
                 key=f"chk_{inc_key}",
             )
@@ -240,7 +362,7 @@ with st.sidebar:
         st.progress(done_count / 6.0, text=f"{done_count}/6 Incidentes Contenidos")
 
 # =====================================================================
-# VALIDACIÓN Y CARGA DEFENSIVA DEL ARCHIVO EXCEL
+# CARGA Y VALIDACIÓN DEFENSIVA DE TELEMETRÍA SIEM
 # =====================================================================
 if uploaded_file is not None:
     active_source: bytes | str | None = uploaded_file.getvalue()
@@ -253,7 +375,7 @@ else:
     source_id = ""
 
 if active_source is None:
-    st.info("👆 Carga un archivo `.xlsx` en la barra lateral o activa el dataset oficial para comenzar.")
+    st.info("👆 Sube un archivo `.xlsx` en el panel izquierdo o activa el dataset oficial para iniciar JEV Cyber Command.")
     st.stop()
 
 t0 = time.perf_counter()
@@ -262,7 +384,7 @@ try:
     default_sheet_idx = sheet_names.index("SIEM Export") if "SIEM Export" in sheet_names else 0
     if len(sheet_names) > 1:
         with st.sidebar:
-            sheet_name = st.selectbox("Hoja del Libro Excel", sheet_names, index=default_sheet_idx)
+            sheet_name = st.selectbox("Hoja Excel", sheet_names, index=default_sheet_idx)
     else:
         sheet_name = sheet_names[0]
 
@@ -271,11 +393,11 @@ except SIEMValidationError as val_err:
     st.error(f"⚠️ **Error de Validación de Esquema SIEM:** {val_err}")
     st.stop()
 except Exception as exc:
-    st.error(f"❌ **No se pudo leer el archivo Excel:** `{type(exc).__name__}: {exc}`")
+    st.error(f"❌ **No se pudo procesar el archivo Excel:** `{type(exc).__name__}: {exc}`")
     st.stop()
 
 for warn_msg in summary_metrics["normalization"].get("schema_warnings", []):
-    st.warning(f"ℹ️ **Aviso de Normalización de Esquema:** {warn_msg}")
+    st.warning(f"ℹ️ **Aviso de Esquema SIEM:** {warn_msg}")
 
 if st.session_state.get("last_source_id") != f"{source_id}:{sheet_name}":
     exec_rep_init, tech_rep_init, status_init = generate_ai_reports(
@@ -286,6 +408,24 @@ if st.session_state.get("last_source_id") != f"{source_id}:{sheet_name}":
     st.session_state["ai_status"] = status_init
     st.session_state["last_source_id"] = f"{source_id}:{sheet_name}"
 
+if "jev_chat_history" not in st.session_state:
+    initial_ans, initial_lat = ask_jev_copilot(
+        "Resumen ejecutivo del estado global de telemetría",
+        findings,
+        summary_metrics,
+        provider,
+        model_name,
+        api_url,
+        api_key,
+    )
+    st.session_state["jev_chat_history"] = [
+        {
+            "role": "assistant",
+            "content": initial_ans,
+            "latency_ms": initial_lat,
+        }
+    ]
+
 pdf_bytes = cached_compile_pdf(
     st.session_state["exec_rep"],
     st.session_state["tech_rep"],
@@ -295,210 +435,282 @@ pdf_bytes = cached_compile_pdf(
 )
 elapsed_ms = (time.perf_counter() - t0) * 1000.0
 malicious_pct = (summary_metrics["correlated_malicious_events"] / max(1, summary_metrics["total_logs"])) * 100.0
+done_inc = sum(1 for v in st.session_state["contained_incidents"].values() if v)
+lcel_meta = get_langchain_pipeline_metadata(provider, model_name)
 
 # =====================================================================
-# ENCABEZADO TÁCTICO + DESCARGA RÁPIDA DEL PDF OFICIAL
+# CABECERA FLUIDA JEV CYBER COMMAND + EXPORTACIÓN PDF 1-CLIC
 # =====================================================================
-hero_col, cta_col = st.columns([3.4, 1.3], vertical_alignment="center")
+top_left, top_right = st.columns([3.5, 1.25], vertical_alignment="center")
 
-with hero_col:
+with top_left:
     st.markdown(
         f"""
-        <div class="soc-hero">
-            <div class="soc-hero-title">🛡️ SOC Nivel 2 — Plataforma de Análisis Forense e Incidentes con IA</div>
-            <div class="soc-hero-sub">
-                Auditoría de <b>{summary_metrics['total_logs']}</b> registros SIEM (Hoja: <code>{sheet_name}</code>) ·
-                Ventana: <code>{summary_metrics['time_start']}</code> a <code>{summary_metrics['time_end']}</code>
+        <div class="jev-hud-header">
+            <div class="jev-badge-row">
+                <span class="jev-tag jev-tag-cyan">⚡ JEV CYBER COMMAND OS v3.0</span>
+                <span class="jev-tag jev-tag-purple">🔗 LANGCHAIN LCEL ENGINE</span>
+                <span class="jev-tag jev-tag-crimson">🔴 {summary_metrics['critical_incidents_count']} INCIDENTES CRÍTICOS</span>
+                <span class="jev-tag jev-tag-emerald">🕵️‍♂️ {summary_metrics['hidden_info_critical_events']} RESCATADOS DE 'INFORMATIONAL'</span>
             </div>
-            <div class="soc-pill-bar">
-                <span class="soc-pill soc-pill-alert">🔴 {summary_metrics['critical_incidents_count']} Incidentes Críticos (Riesgo Alto)</span>
-                <span class="soc-pill soc-pill-info-trap">🕵️‍♂️ {summary_metrics['hidden_info_critical_events']} Eventos Críticos Ocultos en 'Informational'</span>
-                <span class="soc-pill">📊 {summary_metrics['correlated_malicious_events']} Eventos Maliciosos Correlacionados ({malicious_pct:.1f}%)</span>
-                <span class="soc-pill">⚡ Procesamiento: {elapsed_ms:.0f} ms</span>
+            <div class="jev-title">Centro de Operaciones SOC Nivel 2 & Copiloto Forense LangChain</div>
+            <div class="jev-subtitle">
+                Telemetría auditada: <b>{summary_metrics['total_logs']}</b> eventos (<code>{sheet_name}</code>) ·
+                Ventana UTC: <code>{summary_metrics['time_start']}</code> → <code>{summary_metrics['time_end']}</code> ·
+                Latencia del motor: <code>{elapsed_ms:.0f} ms</code>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-with cta_col:
+with top_right:
     with st.container(border=True):
-        st.caption("📄 **Entregable Oficial Compilado**")
+        st.caption("🏆 **Entregable Oficial Compilado (7 Páginas)**")
         st.download_button(
-            label="📥 Descargar PDF Oficial",
+            label="📥 Descargar Informe PDF",
             data=pdf_bytes,
             file_name="Informe_Final_SOC_L2_Incidentes.pdf",
             mime="application/pdf",
             type="primary",
             width="stretch",
-            key="top_pdf_download_btn",
-            help="Descarga inmediata del Informe Ejecutivo + Informe Técnico + Matriz MITRE ATT&CK + Gráficos.",
+            key="hud_pdf_btn",
+            help="Descarga el PDF oficial con Portada TLP:AMBER+STRICT, Resumen C-Level, Matriz MITRE ATT&CK, Gráficos HD y Playbooks.",
         )
-        st.caption("✅ Ejecutivo C-Level + Técnico DFIR")
+        st.caption("⚡ C-Level + DFIR + MITRE ATT&CK")
 
 # =====================================================================
-# TARJETAS DE MÉTRICAS CLAVE (KPIs)
-# =====================================================================
-with st.container(border=True):
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric(
-        "1. Telemetría Total SIEM",
-        f"{summary_metrics['total_logs']:,} logs",
-        "100% procesados y validados",
-        help="Total de filas analizadas en la hoja seleccionada.",
-    )
-    k2.metric(
-        "2. Alertas Nativas vs Reales",
-        f"{summary_metrics['correlated_malicious_events']} eventos",
-        f"+{summary_metrics['hidden_info_critical_events']} ocultos en 'Info' (vs {summary_metrics['native_non_info_alerts']} SIEM)",
-        delta_color="inverse",
-        help="El SIEM nativo solo marcó 112 alertas; la correlación SOC L2 vinculó 124 eventos maliciosos.",
-    )
-    k3.metric(
-        "3. Incidentes Confirmados",
-        f"{summary_metrics['critical_incidents_count']} Críticos (Alto)",
-        f"+ {summary_metrics['medium_findings_count']} Brecha Visibilidad (Medio)",
-        delta_color="inverse",
-        help="INC-01 a INC-06 clasificados con Riesgo ALTO y OBS-01 con Riesgo MEDIO.",
-    )
-    k4.metric(
-        "4. Fuga de Datos (INC-04 & 02)",
-        f"{summary_metrics['exfil_mib']:.2f} MiB",
-        f"{summary_metrics['exfil_mb']:.2f} MB Legales + Budget2027.xlsx",
-        delta_color="inverse",
-        help="253,305,558 bytes exfiltrados vía 22 HTTPS POST en INC-04 + robo de Budget2027.xlsx en INC-02.",
-    )
-    done_inc = sum(1 for v in st.session_state["contained_incidents"].values() if v)
-    k5.metric(
-        "5. Estado de Contención",
-        f"{done_inc}/6 Incidentes",
-        "Playbooks CLI disponibles",
-        help="Estado de aplicación de los comandos de contención por incidente.",
-    )
-
-# =====================================================================
-# ALERTA DE AUDITORÍA DE EVASIÓN EN SEVERIDAD 'INFORMATIONAL'
+# BENTO FLUID GRID — MÉTRICAS EN TIEMPO REAL
 # =====================================================================
 st.markdown(
     f"""
-    <div class="evasion-alert">
-        <b>🕵️‍♂️ Hallazgo de Auditoría SOC Nivel 2 (Falsos Negativos del SIEM):</b>
-        Un filtro de Nivel 1 que descarte <code>Severity == Informational</code> omitiría evidencia crítica de compromiso:
-        el SIEM registró como <code>Informational</code> el <b>login exitoso tras Password Spraying</b> (<code>EVT-00123</code> en <code>CORP\\mgarcia</code>),
-        la <b>asignación de privilegios</b> (<code>EVT-00126</code>), la <b>compresión previa a la exfiltración legal con 7z.exe</b> (<code>EVT-00428</code>)
-        y las <b>5 ejecuciones periódicas del servicio persistente</b> (<code>C:\\ProgramData\\wuhelper.exe</code> en <code>EVT-00528, 00542, 00548, 00559, 00564</code>).
-        El motor L2 rescata y correlaciona estos <b>{summary_metrics['hidden_info_critical_events']} registros críticos</b>.
+    <div class="jev-bento-grid">
+        <div class="jev-bento-card">
+            <div class="jev-bento-label">01 // TELEMETRÍA SIEM AUDITADA</div>
+            <div class="jev-bento-value">{summary_metrics['total_logs']:,} <span style="font-size:0.95rem;color:#38BDF8;">eventos</span></div>
+            <div class="jev-bento-sub" style="color:#10B981;">✓ 100% esquema validado y normalizado</div>
+        </div>
+        <div class="jev-bento-card">
+            <div class="jev-bento-label">02 // CORRELACIÓN REAL vs SIEM NATIVO</div>
+            <div class="jev-bento-value">{summary_metrics['correlated_malicious_events']} <span style="font-size:0.95rem;color:#F43F5E;">maliciosos</span></div>
+            <div class="jev-bento-sub" style="color:#67E8F9;">+{summary_metrics['hidden_info_critical_events']} ocultos en 'Info' (vs {summary_metrics['native_non_info_alerts']} alertas SIEM)</div>
+        </div>
+        <div class="jev-bento-card">
+            <div class="jev-bento-label">03 // INCIDENTES CONFIRMADOS</div>
+            <div class="jev-bento-value">{summary_metrics['critical_incidents_count']} <span style="font-size:0.95rem;color:#F43F5E;">Riesgo Alto</span></div>
+            <div class="jev-bento-sub" style="color:#FBBF24;">+ {summary_metrics['medium_findings_count']} Brecha de Visibilidad (OBS-01)</div>
+        </div>
+        <div class="jev-bento-card">
+            <div class="jev-bento-label">04 // EXFILTRACIÓN CUANTIFICADA</div>
+            <div class="jev-bento-value">{summary_metrics['exfil_mib']:.2f} <span style="font-size:0.95rem;color:#A78BFA;">MiB</span></div>
+            <div class="jev-bento-sub" style="color:#E2E8F0;">{summary_metrics['exfil_mb']:.2f} MB Legal (22 POST) + Budget2027.xlsx</div>
+        </div>
+        <div class="jev-bento-card">
+            <div class="jev-bento-label">05 // ESTADO SOAR & LANGCHAIN</div>
+            <div class="jev-bento-value">{done_inc}/6 <span style="font-size:0.95rem;color:#10B981;">contenidos</span></div>
+            <div class="jev-bento-sub" style="color:#C4B5FD;">🔗 Grafo LCEL Activo ({model_name})</div>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 # =====================================================================
-# NAVEGACIÓN PRINCIPAL EN 5 PESTAÑAS OPERATIVAS SOC NIVEL 2
+# SELECTOR DE FLUJO DE TRABAJO (VISTA FLUIDA INTEGRAL O FOCO MODULAR)
 # =====================================================================
-tab_inc, tab_visuals, tab_traps, tab_reports, tab_logs = st.tabs(
-    [
-        "🔴 1. Triage de Incidentes & Kill Chain",
-        "📊 2. Visualización Analítica SIEM",
-        "🕵️‍♂️ 3. Auditoría de Evasión ('Informational' & Normalización)",
-        "📄 4. Informes Ejecutivo y Técnico (IA) & Exportar PDF",
-        "🗂️ 5. Explorador Forense de Telemetría (715 Logs)",
-    ]
+workspace_mode = st.segmented_control(
+    "🧭 Modo de Espacio de Trabajo Fluido (JEV Workspace):",
+    options=[
+        "🌊 Vista Fluida Integral (Todo en Pantalla)",
+        "🧠 JEV LangChain Copilot & Grafo LCEL",
+        "🎯 Radar de Incidentes & Kill Chain",
+        "📊 Analítica Visual & Trampas 'Informational'",
+        "📄 Estudio de Informes (C-Level / DFIR) & PDF",
+        "🔎 Telemetría SIEM en Vivo (715 Logs)",
+    ],
+    default="🌊 Vista Fluida Integral (Todo en Pantalla)",
 )
 
-# ---------------------------------------------------------------------
-# TAB 1: TRIAGE DE INCIDENTES, KILL CHAIN Y PLAYBOOKS
-# ---------------------------------------------------------------------
-with tab_inc:
-    f_col_top1, f_col_top2 = st.columns([2.2, 1.2], vertical_alignment="center")
-    with f_col_top1:
-        st.subheader("Matriz Ejecutiva de Clasificación de Riesgo y Mapeo MITRE ATT&CK")
-    with f_col_top2:
-        risk_filter = st.segmented_control(
-            "Filtrar por Nivel de Riesgo:",
-            options=["Todos (7)", "🔴 Solo Riesgo Alto (6)", "🟠 Solo Riesgo Medio (1)"],
-            default="Todos (7)",
+show_all = workspace_mode == "🌊 Vista Fluida Integral (Todo en Pantalla)"
+
+# =====================================================================
+# MÓDULO 1: JEV LANGCHAIN COPILOT & INSPECTOR DE GRAFO LCEL
+# =====================================================================
+if show_all or workspace_mode == "🧠 JEV LangChain Copilot & Grafo LCEL":
+    with st.container(border=True):
+        c_head1, c_head2 = st.columns([2.4, 1.2], vertical_alignment="center")
+        with c_head1:
+            st.markdown("### 🧠 JEV Cyber Copilot — Asistente Forense con LangChain (LCEL)")
+            st.caption(
+                "Interroga los 715 eventos SIEM en lenguaje natural o lanza una cadena de investigación táctica con 1 clic."
+            )
+        with c_head2:
+            with st.expander("🔗 Ver Arquitectura del Grafo LangChain LCEL", expanded=False):
+                st.code(lcel_meta["lcel_expression"], language="python")
+
+        nodes_html = "".join(
+            f"""
+            <div class="lcel-node">
+                <div class="lcel-node-type">{n['type']}</div>
+                <div class="lcel-node-title">⚡ {n['name']}</div>
+                <div class="lcel-node-desc">{n['desc']}</div>
+            </div>
+            """
+            for n in lcel_meta["nodes"]
+        )
+        st.markdown(f'<div class="lcel-flow-grid">{nodes_html}</div>', unsafe_allow_html=True)
+
+        # Botones rápidos de consulta táctica
+        q_cols = st.columns(6)
+        quick_prompts = [
+            ("🕵️‍♂️ 12 Ocultos en Info", "¿Cuáles son los 12 eventos críticos ocultos en severidad Informational?"),
+            ("📤 Exfiltración 241 MiB", "Detalla la exfiltración de datos en INC-04 e INC-02 y cuántos bytes salieron"),
+            ("🚨 Pre-Ransomware VSS", "Analiza la actividad pre-ransomware en WS-023 y el comando vssadmin"),
+            ("🎯 Matriz MITRE ATT&CK", "Mapea todas las tácticas y técnicas MITRE ATT&CK detectadas"),
+            ("🌐 IoCs & IPs Externas", "Lista todos los indicadores de compromiso, IPs externas y artefactos"),
+            ("🛡️ Playbook PowerShell", "Dame el Playbook maestro con todos los comandos PowerShell de contención"),
+        ]
+        triggered_prompt = None
+        for idx, (btn_label, prompt_text) in enumerate(quick_prompts):
+            if q_cols[idx].button(btn_label, key=f"qp_{idx}", width="stretch"):
+                triggered_prompt = prompt_text
+
+        custom_q_col, custom_btn_col = st.columns([4.2, 1.0], vertical_alignment="bottom")
+        with custom_q_col:
+            user_custom_query = st.text_input(
+                "💬 Pregunta a JEV LangChain Copilot (ej. 'Analiza INC-05', '¿Qué pasó en WEB-01?', 'DC-01 vs DC01'):",
+                placeholder="Escribe tu consulta forense para la cadena LangChain...",
+                key="jev_custom_input",
+            )
+        with custom_btn_col:
+            send_custom = st.button("⚡ Ejecutar Chain", type="primary", width="stretch", key="jev_send_btn")
+
+        active_query = triggered_prompt if triggered_prompt else (user_custom_query.strip() if send_custom and user_custom_query.strip() else None)
+        if active_query:
+            ans_md, lat_ms = ask_jev_copilot(
+                active_query, findings, summary_metrics, provider, model_name, api_url, api_key
+            )
+            st.session_state["jev_chat_history"].append(
+                {"role": "user", "content": active_query, "latency_ms": 0.0}
+            )
+            st.session_state["jev_chat_history"].append(
+                {"role": "assistant", "content": ans_md, "latency_ms": lat_ms}
+            )
+
+        # Mostrar la última interacción de forma fluida y limpia
+        latest_msgs = st.session_state["jev_chat_history"][-2:]
+        for msg in latest_msgs:
+            if msg["role"] == "user":
+                st.markdown(f"**🧑‍💻 Analista SOC L2:** `{msg['content']}`")
+            else:
+                with st.container(border=True):
+                    st.markdown(msg["content"])
+                    st.caption(f"⚡ Cadena `JEVCyberCopilotChain` ejecutada en `{msg['latency_ms']:.1f} ms` · Modelo: `{model_name}`")
+
+# =====================================================================
+# MÓDULO 2: RADAR FLUIDO DE INCIDENTES, KILL CHAIN Y PLAYBOOKS
+# =====================================================================
+if show_all or workspace_mode == "🎯 Radar de Incidentes & Kill Chain":
+    st.markdown(
+        f"""
+        <div class="jev-trap-banner">
+            <b>🕵️‍♂️ Hallazgo Clave de Nivel 2 — Evasión en Severidad <code>Informational</code>:</b>
+            Las reglas nativas del SIEM solo alertaron sobre <b>{summary_metrics['native_non_info_alerts']}</b> registros,
+            dejando ocultos como <code>Informational</code> el <b>login exitoso tras Password Spraying</b> (<code>EVT-00123</code>),
+            la <b>escalada de privilegios</b> (<code>EVT-00126</code>), la <b>compresión previa a la exfiltración con 7z.exe</b> (<code>EVT-00428</code>)
+            y las <b>5 ejecuciones del servicio persistente</b> (<code>C:\\ProgramData\\wuhelper.exe</code>).
+            El motor L2 rescata y vincula los <b>{summary_metrics['correlated_malicious_events']} eventos maliciosos reales</b>.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.container(border=True):
+        r_col1, r_col2 = st.columns([2.2, 1.4], vertical_alignment="center")
+        with r_col1:
+            st.markdown("### 🎯 Radar Interactivo de Incidentes & Cadena de Ataque (Kill Chain)")
+        with r_col2:
+            inc_focus = st.selectbox(
+                "Inspección Rápida de Incidente:",
+                options=["Todos los Hallazgos (6 Críticos + 1 Medio)"] + [f"{f['id']} — {f['titulo']}" for f in findings],
+                label_visibility="collapsed",
+            )
+
+        matrix_df = pd.DataFrame(
+            [
+                {
+                    "ID": f["id"],
+                    "Incidente / Hallazgo Detectado": f["titulo"],
+                    "Riesgo": f"🔴 {f['riesgo']}" if f["riesgo"] == "Alto" else f"🟠 {f['riesgo']}",
+                    "CVSS v3.1": f["cvss_estimado"],
+                    "Ventana (UTC)": f["ventana"].replace("2026-10-23 ", ""),
+                    "Eventos": f["eventos_count"],
+                    "Ocultos en Info": f["eventos_ocultos_info"],
+                    "Activos Comprometidos": f["activos"],
+                    "MITRE ATT&CK": f["mitre"],
+                }
+                for f in findings
+            ]
+        )
+        st.dataframe(matrix_df, width="stretch", hide_index=True)
+
+        visible_findings = (
+            findings
+            if inc_focus.startswith("Todos")
+            else [f for f in findings if inc_focus.startswith(f["id"])]
         )
 
-    filtered_findings = findings
-    if risk_filter == "🔴 Solo Riesgo Alto (6)":
-        filtered_findings = [f for f in findings if f["riesgo"] == "Alto"]
-    elif risk_filter == "🟠 Solo Riesgo Medio (1)":
-        filtered_findings = [f for f in findings if f["riesgo"] == "Medio"]
+        for f in visible_findings:
+            badge = "🔴 RIESGO ALTO" if f["riesgo"] == "Alto" else "🟠 RIESGO MEDIO"
+            is_contained = st.session_state["contained_incidents"].get(f["id"], False)
+            cont_status = "✅ CONTENIDO" if is_contained else ("⚠️ ACCIÓN REQUERIDA" if f["riesgo"] == "Alto" else "🔎 AUDITORÍA SIEM")
 
-    matrix_summary_df = pd.DataFrame(
-        [
-            {
-                "ID": f["id"],
-                "Incidente / Hallazgo": f["titulo"],
-                "Riesgo": f"🔴 {f['riesgo']}" if f["riesgo"] == "Alto" else f"🟠 {f['riesgo']}",
-                "Severidad CVSS": f["cvss_estimado"],
-                "Ventana (UTC)": f["ventana"].replace("2026-10-23 ", ""),
-                "Eventos": f["eventos_count"],
-                "Ocultos en Info": f["eventos_ocultos_info"],
-                "Activos Comprometidos": f["activos"],
-                "MITRE ATT&CK": f["mitre"],
-            }
-            for f in filtered_findings
-        ]
-    )
-    st.dataframe(matrix_summary_df, width="stretch", hide_index=True)
+            with st.expander(
+                f"{badge} · [{f['id']}] {f['titulo']} — {cont_status} ({f['eventos_count']} eventos | {f['eventos_ocultos_info']} en Info)",
+                expanded=(not inc_focus.startswith("Todos") or f["id"] in ("INC-01", "INC-04")),
+            ):
+                steps = [s.strip() for s in f["kill_chain"].split("->")]
+                kc_html = ' <span class="jev-kc-arrow">➔</span> '.join(
+                    f'<span class="jev-kc-step">{s}</span>' for s in steps
+                )
+                st.markdown(
+                    f'<div class="jev-killchain"><b>⚡ Kill Chain:</b>&nbsp; {kc_html}</div>',
+                    unsafe_allow_html=True,
+                )
 
-    st.markdown("#### 🔗 Desglose Forense por Incidente, Cadena de Ataque (Kill Chain) y Playbooks de Contención")
-    for f in filtered_findings:
-        icon = "🔴" if f["riesgo"] == "Alto" else "🟠"
-        if f["id"] in st.session_state["contained_incidents"]:
-            is_contained = st.session_state["contained_incidents"][f["id"]]
-            status_tag = "✅ CONTENIDO" if is_contained else "⚠️ PENDIENTE DE CONTENCIÓN"
-        else:
-            status_tag = "🔎 AUDITORÍA TELEMETRÍA SIEM"
+                d1, d2, d3 = st.columns([1.35, 1.35, 1.1])
+                with d1:
+                    with st.container(border=True):
+                        st.markdown("**👔 Impacto de Negocio (C-Level)**")
+                        st.write(f["resumen_ejecutivo"])
+                with d2:
+                    with st.container(border=True):
+                        st.markdown("**🔬 Reconstrucción Forense (DFIR L2)**")
+                        st.write(f["resumen_tecnico"])
+                with d3:
+                    with st.container(border=True):
+                        st.markdown("**🎯 Telemetría & IoCs**")
+                        st.markdown(f"- **CVSS:** `{f['cvss_estimado']}`")
+                        st.markdown(f"- **Ventana:** `{f['ventana']}`")
+                        st.markdown(f"- **Activos:** `{f['activos']}`")
+                        st.markdown(f"- **MITRE:** `{f['mitre']}`")
+                        st.markdown(f"- **Log_IDs:** `{f['evidencia_logs']}`")
 
-        with st.expander(
-            f"{icon} [{f['id']}] {f['titulo']} — {status_tag} ({f['eventos_count']} eventos | {f['eventos_ocultos_info']} ocultos en Info)",
-            expanded=(f["id"] in ("INC-01", "INC-02")),
-        ):
-            steps = [s.strip() for s in f["kill_chain"].split("->")]
-            steps_html = ' <span class="killchain-arrow">➔</span> '.join(
-                f'<span class="killchain-step">{s}</span>' for s in steps
-            )
-            st.markdown(
-                f'<div class="killchain-track"><b>Kill Chain:</b>&nbsp; {steps_html}</div>',
-                unsafe_allow_html=True,
-            )
+                st.info(f"**🛡️ Plan de Contención y Remediación:**\n{f['remediacion']}")
+                st.code(f["comandos_contencion"], language="powershell")
 
-            b1, b2, b3 = st.columns([1.4, 1.4, 1.1])
-            with b1:
-                with st.container(border=True):
-                    st.markdown("**👔 Impacto Ejecutivo (C-Level)**")
-                    st.write(f["resumen_ejecutivo"])
-            with b2:
-                with st.container(border=True):
-                    st.markdown("**🔬 Evidencia Forense (SOC Nivel 2)**")
-                    st.write(f["resumen_tecnico"])
-            with b3:
-                with st.container(border=True):
-                    st.markdown("**🎯 Metadatos & IoCs Clave**")
-                    st.markdown(f"- **Riesgo:** `{f['riesgo'].upper()}` ({f['cvss_estimado']})")
-                    st.markdown(f"- **Ventana:** `{f['ventana']}`")
-                    st.markdown(f"- **Activos:** `{f['activos']}`")
-                    st.markdown(f"- **MITRE:** `{f['mitre']}`")
-                    st.markdown(f"- **Log_IDs:** `{f['evidencia_logs']}`")
+# =====================================================================
+# MÓDULO 3: ANALÍTICA VISUAL FLUIDA & AUDITORÍA DE EVASIÓN SIEM
+# =====================================================================
+if show_all or workspace_mode == "📊 Analítica Visual & Trampas 'Informational'":
+    with st.container(border=True):
+        st.markdown("### 📊 Telemetría Visual Interactiva & Auditoría de Evasión SIEM")
+        st.caption(
+            "Gráficos sincronizados con los 124 eventos maliciosos correlacionados y los 12 eventos críticos rescatados de severidad 'Informational'."
+        )
 
-            st.info(f"**🛡️ Plan de Contención y Remediación:**\n{f['remediacion']}")
-            st.code(f["comandos_contencion"], language="powershell")
-
-# ---------------------------------------------------------------------
-# TAB 2: VISUALIZACIÓN ANALÍTICA SIEM
-# ---------------------------------------------------------------------
-with tab_visuals:
-    st.subheader("📊 Visualización Analítica de Telemetría y Correlación de Incidentes")
-    st.caption(
-        "Distribución de los 124 eventos maliciosos correlacionados por incidente, ventana temporal, activo comprometido e IP de origen."
-    )
-
-    col_chart1, col_chart2 = st.columns(2)
-    with col_chart1:
-        with st.container(border=True):
+        ch_col1, ch_col2 = st.columns(2)
+        with ch_col1:
             inc_df = df[df["Incident_ID"] != "NONE"].copy()
             inc_df["Visibilidad SIEM"] = inc_df["Severity"].apply(
                 lambda s: "Oculto en 'Informational' (Rescatado L2)" if s == "Informational" else f"Alerta SIEM ({s})"
@@ -516,24 +728,26 @@ with tab_visuals:
                 orientation="h",
                 title=f"🎯 Eventos por Incidente (Total: {summary_metrics['correlated_malicious_events']})",
                 color_discrete_map={
-                    "Alerta SIEM (High)": "#dc2626",
-                    "Alerta SIEM (Medium)": "#ea580c",
-                    "Alerta SIEM (Warning)": "#f59e0b",
-                    "Oculto en 'Informational' (Rescatado L2)": "#2563eb",
+                    "Alerta SIEM (High)": "#FF2A5F",
+                    "Alerta SIEM (Medium)": "#F97316",
+                    "Alerta SIEM (Warning)": "#FBBF24",
+                    "Oculto en 'Informational' (Rescatado L2)": "#00F0FF",
                 },
                 text="Eventos",
+                template="plotly_dark",
             )
             fig_inc.update_layout(
                 yaxis={"categoryorder": "total ascending", "title": ""},
-                xaxis_title=f"Eventos Correlacionados (Total: {summary_metrics['correlated_malicious_events']})",
+                xaxis_title="Eventos Correlacionados",
                 legend_title="Visibilidad SIEM",
-                height=380,
-                margin=dict(l=10, r=10, t=45, b=20),
+                height=360,
+                margin=dict(l=10, r=10, t=42, b=15),
+                paper_bgcolor="rgba(15,23,42,0.92)",
+                plot_bgcolor="rgba(15,23,42,0.92)",
             )
             st.plotly_chart(fig_inc, width="stretch")
 
-    with col_chart2:
-        with st.container(border=True):
+        with ch_col2:
             timeline_df = (
                 df[df["Incident_ID"] != "NONE"]
                 .groupby(["Hour_Min_10", "Incident_ID"])
@@ -546,22 +760,24 @@ with tab_visuals:
                 x="Hora",
                 y="Eventos",
                 color="Incident_ID",
-                title="⏱️ Progresión Cronológica de los 6 Incidentes (Intervalos de 10 min)",
-                color_discrete_sequence=["#dc2626", "#ea580c", "#d97706", "#7c3aed", "#2563eb", "#0891b2"],
+                title="⏱️ Progresión Cronológica de Ataques (Ventanas de 10 min)",
+                color_discrete_sequence=["#FF2A5F", "#F97316", "#FBBF24", "#8B5CF6", "#00F0FF", "#10B981"],
                 text="Eventos",
+                template="plotly_dark",
             )
             fig_time.update_layout(
-                xaxis_title="Hora del Evento (2026-10-23 UTC)",
+                xaxis_title="Hora UTC (2026-10-23)",
                 yaxis_title="Eventos Maliciosos",
                 legend_title="Incidente",
-                height=380,
-                margin=dict(l=10, r=10, t=45, b=20),
+                height=360,
+                margin=dict(l=10, r=10, t=42, b=15),
+                paper_bgcolor="rgba(15,23,42,0.92)",
+                plot_bgcolor="rgba(15,23,42,0.92)",
             )
             st.plotly_chart(fig_time, width="stretch")
 
-    col_chart3, col_chart4 = st.columns(2)
-    with col_chart3:
-        with st.container(border=True):
+        ch_col3, ch_col4 = st.columns(2)
+        with ch_col3:
             host_df = (
                 df[df["Incident_ID"] != "NONE"]
                 .groupby(["Hostname_Norm", "Incident_ID"])
@@ -574,17 +790,20 @@ with tab_visuals:
                 y="Eventos",
                 color="Incident_ID",
                 title="🖥️ Activos Comprometidos (Hostnames Normalizados)",
+                color_discrete_sequence=["#FF2A5F", "#F97316", "#FBBF24", "#8B5CF6", "#00F0FF", "#10B981"],
                 text="Eventos",
+                template="plotly_dark",
             )
             fig_host.update_layout(
-                xaxis_title="Servidor / Estación (Normalizado)",
-                height=340,
-                margin=dict(l=10, r=10, t=45, b=20),
+                xaxis_title="Activo Corporativo",
+                height=330,
+                margin=dict(l=10, r=10, t=42, b=15),
+                paper_bgcolor="rgba(15,23,42,0.92)",
+                plot_bgcolor="rgba(15,23,42,0.92)",
             )
             st.plotly_chart(fig_host, width="stretch")
 
-    with col_chart4:
-        with st.container(border=True):
+        with ch_col4:
             ip_df = (
                 df[df["Incident_ID"] != "NONE"]
                 .groupby(["Source_IP", "Incident_ID"])
@@ -597,180 +816,153 @@ with tab_visuals:
                 y="Source_IP",
                 color="Incident_ID",
                 orientation="h",
-                title="🌐 IPs de Origen en Incidentes (Atacantes Externos y Pivotes Internos)",
+                title="🌐 IPs de Origen en Incidentes (Externas y Pivotes)",
+                color_discrete_sequence=["#FF2A5F", "#F97316", "#FBBF24", "#8B5CF6", "#00F0FF", "#10B981"],
                 text="Eventos",
+                template="plotly_dark",
             )
             fig_ip.update_layout(
                 yaxis={"categoryorder": "total ascending"},
-                height=340,
-                margin=dict(l=10, r=10, t=45, b=20),
+                height=330,
+                margin=dict(l=10, r=10, t=42, b=15),
+                paper_bgcolor="rgba(15,23,42,0.92)",
+                plot_bgcolor="rgba(15,23,42,0.92)",
             )
             st.plotly_chart(fig_ip, width="stretch")
 
-# ---------------------------------------------------------------------
-# TAB 3: AUDITORÍA DE EVASIÓN ('INFORMATIONAL' & NORMALIZACIÓN)
-# ---------------------------------------------------------------------
-with tab_traps:
-    st.subheader(f"🕵️‍♂️ Auditoría Forense de Nivel 2: Los {summary_metrics['hidden_info_critical_events']} Eventos Críticos Ocultos en 'Informational'")
-    st.markdown(
-        """
-        Esta vista detalla los **12 eventos críticos** que el SIEM clasificó erróneamente como `Informational` pero que
-        demuestran el éxito de intrusión, la compresión de archivos confidenciales y la ejecución periódica de persistencia:
-        """
-    )
-    hidden_df_view = df[df["Hidden_Critical_Info"]][
-        [
-            "Log_ID",
-            "Timestamp",
-            "Incident_ID",
-            "Hostname",
-            "Event_ID",
-            "User",
-            "Source_IP",
-            "Destination",
-            "Event_Description",
-            "Process_CommandLine",
-            "Severity",
-        ]
-    ]
-    st.dataframe(hidden_df_view, width="stretch", hide_index=True)
-
-    st.subheader("🔧 Auditoría de Calidad y Normalización de Telemetría SIEM")
-    n_col1, n_col2 = st.columns(2)
-    with n_col1:
-        with st.container(border=True):
-            st.markdown("#### 🖥️ Normalización de Hostnames (`DC-01` vs `DC01`)")
-            st.warning(
-                f"- `DC-01` (con guion): **{summary_metrics['normalization']['dc_hyphen_count']} eventos**\n"
-                f"- `DC01` (sin guion): **{summary_metrics['normalization']['dc_no_hyphen_count']} eventos**\n\n"
-                "**Acción del Parser SOC L2:** Unificación automática bajo `Hostname_Norm = DC-01`, evitando perder "
-                "el 24.8% de la telemetría del Controlador de Dominio en las consultas por activo."
+        with st.expander(
+            f"🕵️‍♂️ Ver Tabla de los {summary_metrics['hidden_info_critical_events']} Eventos Críticos Ocultos en 'Informational' + Normalización DC-01/DC01",
+            expanded=not show_all,
+        ):
+            hidden_df_view = df[df["Hidden_Critical_Info"]][
+                [
+                    "Log_ID",
+                    "Timestamp",
+                    "Incident_ID",
+                    "Hostname",
+                    "Event_ID",
+                    "User",
+                    "Source_IP",
+                    "Destination",
+                    "Event_Description",
+                    "Process_CommandLine",
+                    "Severity",
+                ]
+            ]
+            st.dataframe(hidden_df_view, width="stretch", hide_index=True)
+            n1, n2 = st.columns(2)
+            n1.info(
+                f"**🖥️ Normalización de Activos (`DC-01` vs `DC01`):** `DC-01` ({summary_metrics['normalization']['dc_hyphen_count']} logs) + "
+                f"`DC01` ({summary_metrics['normalization']['dc_no_hyphen_count']} logs) $\\rightarrow$ unificados en `Hostname_Norm = DC-01`."
             )
-    with n_col2:
-        with st.container(border=True):
-            st.markdown("#### 👤 Normalización de Cuentas (`backupsvc` vs `svc_backup`)")
-            st.warning(
-                f"- `CORP\\backupsvc`: **{summary_metrics['normalization']['backupsvc_count']} eventos** (comprometida en `INC-03`)\n"
-                f"- `CORP\\svc_backup`: **{summary_metrics['normalization']['svc_backup_count']} eventos**\n\n"
-                "**Recomendación SOC L2:** Estandarizar las cuentas de servicio y migrar a *Group Managed Service Accounts (gMSA)*."
+            n2.info(
+                f"**👤 Dualidad de Cuentas (`backupsvc` vs `svc_backup`):** `CORP\\backupsvc` ({summary_metrics['normalization']['backupsvc_count']} logs, "
+                f"comprometida en `INC-03`) vs `CORP\\svc_backup` ({summary_metrics['normalization']['svc_backup_count']} logs)."
             )
 
-# ---------------------------------------------------------------------
-# TAB 4: INFORMES EJECUTIVO Y TÉCNICO + EXPORTACIÓN PDF
-# ---------------------------------------------------------------------
-with tab_reports:
-    st.subheader("📄 Generación Dual con Agentes de IA (Ejecutivo C-Level + Técnico Forense)")
-    act_col1, act_col2 = st.columns([1.2, 2.3], vertical_alignment="center")
-    with act_col1:
-        regen = st.button(
-            "🤖 Re-ejecutar Agente IA y Actualizar",
-            type="secondary",
-            width="stretch",
-        )
-    with act_col2:
-        st.success(f"✅ {st.session_state.get('ai_status', 'Informes verificados y listos.')}")
-
-    if regen:
-        with st.spinner("Orquestando Agentes de IA (Clasificador + Redactor Ejecutivo + Redactor Forense)..."):
-            exec_rep, tech_rep, status_msg = generate_ai_reports(
-                findings, summary_metrics, provider, model_name, api_url, api_key
+# =====================================================================
+# MÓDULO 4: ESTUDIO DE INFORMES LANGCHAIN (C-LEVEL + DFIR) & PDF
+# =====================================================================
+if show_all or workspace_mode == "📄 Estudio de Informes (C-Level / DFIR) & PDF":
+    with st.container(border=True):
+        st.markdown("### 📄 Estudio Dual de Informes LangChain (`RunnableParallel`) & Compilador PDF")
+        bar_c1, bar_c2 = st.columns([1.3, 2.5], vertical_alignment="center")
+        with bar_c1:
+            regen = st.button(
+                "🔗 Ejecutar Pipeline LangChain LCEL",
+                type="secondary",
+                width="stretch",
             )
-            st.session_state["exec_rep"] = exec_rep
-            st.session_state["tech_rep"] = tech_rep
-            st.session_state["ai_status"] = status_msg
-            st.rerun()
+        with bar_c2:
+            st.success(f"🟢 {st.session_state.get('ai_status', 'Pipeline LangChain LCEL sincronizado.')}")
 
-    rep_col1, rep_col2 = st.columns(2)
-    with rep_col1:
-        with st.container(border=True):
-            st.markdown("#### 👔 1. Resumen Ejecutivo (Español Ejecutivo / C-Level)")
-            st.caption("Enfocado en impacto financiero, legal/regulatorio, riesgo de Ransomware y decisiones de negocio.")
+        if regen:
+            with st.spinner("Ejecutando RunnableParallel(executive=exec_chain, technical=tech_chain)..."):
+                exec_rep, tech_rep, status_msg = generate_ai_reports(
+                    findings, summary_metrics, provider, model_name, api_url, api_key
+                )
+                st.session_state["exec_rep"] = exec_rep
+                st.session_state["tech_rep"] = tech_rep
+                st.session_state["ai_status"] = status_msg
+                st.rerun()
+
+        ed_col1, ed_col2 = st.columns(2)
+        with ed_col1:
+            st.markdown("#### 👔 1. Informe Ejecutivo (C-Level / Junta Directiva)")
             st.text_area(
                 "Editor Ejecutivo:",
                 key="exec_rep",
-                height=390,
+                height=340,
                 label_visibility="collapsed",
             )
-    with rep_col2:
-        with st.container(border=True):
-            st.markdown("#### 🛠️ 2. Informe Técnico Detallado (Ingeniería SOC L2 / DFIR)")
-            st.caption("Incluye cronología, Log_IDs, IoCs, técnicas MITRE ATT&CK y Playbooks CLI de contención.")
+        with ed_col2:
+            st.markdown("#### 🛠️ 2. Informe Técnico Forense (Ingeniería SOC L2 / DFIR)")
             st.text_area(
                 "Editor Técnico:",
                 key="tech_rep",
-                height=390,
+                height=340,
                 label_visibility="collapsed",
             )
 
-    final_pdf_bytes = cached_compile_pdf(
-        st.session_state["exec_rep"],
-        st.session_state["tech_rep"],
-        findings,
-        summary_metrics,
-        df,
-    )
-
-    with st.container(border=True):
-        st.markdown("#### 🏆 Exportación del Informe Oficial en PDF")
-        st.write(
-            "El archivo `Informe_Final_SOC_L2_Incidentes.pdf` incluye: **Portada Ejecutiva `TLP:AMBER+STRICT`**, "
-            "**Tarjetas KPI**, **Resumen Ejecutivo C-Level**, **Matriz MITRE ATT&CK**, **Panel Cuádruple de Gráficos de Alta Resolución**, "
-            "**Tabla de Auditoría de los 12 Eventos Ocultos en `Informational`** y **Desglose Forense + Playbook CLI de los 6 Incidentes**."
+        final_pdf_bytes = cached_compile_pdf(
+            st.session_state["exec_rep"],
+            st.session_state["tech_rep"],
+            findings,
+            summary_metrics,
+            df,
         )
-        downloaded = st.download_button(
-            label="📥 DESCARGAR INFORME OFICIAL EN PDF (EJECUTIVO + TÉCNICO + GRÁFICOS)",
+        st.download_button(
+            label="📥 DESCARGAR INFORME OFICIAL EN PDF (EJECUTIVO C-LEVEL + TÉCNICO DFIR + MITRE ATT&CK)",
             data=final_pdf_bytes,
             file_name="Informe_Final_SOC_L2_Incidentes.pdf",
             mime="application/pdf",
             type="primary",
             width="stretch",
-            key="bottom_pdf_download_btn",
+            key="studio_pdf_btn",
         )
-        if downloaded:
-            st.balloons()
-            st.success("🎉 ¡Informe PDF descargado con éxito! También tienes una copia guardada automáticamente en la carpeta del proyecto.")
 
-# ---------------------------------------------------------------------
-# TAB 5: EXPLORADOR FORENSE DE TELEMETRÍA (715 LOGS)
-# ---------------------------------------------------------------------
-with tab_logs:
-    st.subheader("🗂️ Explorador Forense de Telemetría SIEM")
-    st.caption(
-        "Utiliza los filtros rápidos de 1 clic para inspeccionar los eventos maliciosos correlacionados o despliega los filtros avanzados."
-    )
+# =====================================================================
+# MÓDULO 5: EXPLORADOR FLUIDO DE TELEMETRÍA SIEM (715 LOGS)
+# =====================================================================
+if show_all or workspace_mode == "🔎 Telemetría SIEM en Vivo (715 Logs)":
+    with st.container(border=True):
+        st.markdown("### 🔎 Stream Forense de Telemetría SIEM (715 Eventos)")
+        opt_malicious = f"🔴 Maliciosos Correlacionados ({summary_metrics['correlated_malicious_events']})"
+        opt_hidden = f"🕵️‍♂️ Críticos Ocultos en 'Info' ({summary_metrics['hidden_info_critical_events']})"
+        opt_ext_ip = f"🌐 Tráfico con IPs Externas ({summary_metrics['external_ip_events_count']})"
+        opt_all = f"📋 Dataset Completo ({summary_metrics['total_logs']})"
 
-    opt_malicious = f"🔴 Solo Eventos Maliciosos Correlacionados ({summary_metrics['correlated_malicious_events']})"
-    opt_hidden = f"🕵️‍♂️ Solo Críticos Ocultos en 'Informational' ({summary_metrics['hidden_info_critical_events']})"
-    opt_ext_ip = f"🌐 Tráfico con IPs Externas Origen/Destino ({summary_metrics['external_ip_events_count']})"
-    opt_all = f"📋 Todos los Registros del SIEM ({summary_metrics['total_logs']})"
+        f_top1, f_top2, f_top3 = st.columns([2.3, 1.1, 1.2], vertical_alignment="center")
+        with f_top1:
+            preset = st.segmented_control(
+                "Filtro Rápido:",
+                options=[opt_malicious, opt_hidden, opt_ext_ip, opt_all],
+                default=opt_malicious,
+                label_visibility="collapsed",
+            )
+        with f_top2:
+            sel_inc = st.selectbox(
+                "Incidente",
+                ["Todos los Incidentes"] + list(df["Incident_Tag"].unique()),
+                label_visibility="collapsed",
+            )
+        with f_top3:
+            search_q = st.text_input(
+                "Buscar IOC / Comando / Log_ID",
+                value="",
+                placeholder="🔎 Buscar Log_ID, IP, usuario, comando...",
+                label_visibility="collapsed",
+            )
 
-    preset = st.segmented_control(
-        "⚡ Filtro Rápido de Telemetría:",
-        options=[opt_malicious, opt_hidden, opt_ext_ip, opt_all],
-        default=opt_malicious,
-    )
+        filtered = df.copy()
+        if preset == opt_malicious:
+            filtered = filtered[filtered["Incident_ID"] != "NONE"]
+        elif preset == opt_hidden:
+            filtered = filtered[filtered["Hidden_Critical_Info"]]
+        elif preset == opt_ext_ip:
+            filtered = filtered[filtered["Involves_External_IP"]]
 
-    filtered = df.copy()
-    if preset == opt_malicious:
-        filtered = filtered[filtered["Incident_ID"] != "NONE"]
-    elif preset == opt_hidden:
-        filtered = filtered[filtered["Hidden_Critical_Info"]]
-    elif preset == opt_ext_ip:
-        filtered = filtered[filtered["Involves_External_IP"]]
-
-    with st.expander("🔎 Filtros Avanzados (Incidente, Severidad, Hostname, Búsqueda libre)", expanded=False):
-        f_col1, f_col2, f_col3, f_col4 = st.columns(4)
-        with f_col1:
-            sel_inc = st.selectbox("Incidente Específico", ["Todos"] + list(df["Incident_Tag"].unique()))
-        with f_col2:
-            sel_sev = st.multiselect("Severidad SIEM", options=list(df["Severity"].unique()), default=list(df["Severity"].unique()))
-        with f_col3:
-            sel_host = st.multiselect("Hostname", options=list(df["Hostname"].unique()), default=list(df["Hostname"].unique()))
-        with f_col4:
-            search_q = st.text_input("Buscar texto (Comando, Log_ID, Usuario, IP)", value="")
-
-        filtered = filtered[filtered["Severity"].isin(sel_sev) & filtered["Hostname"].isin(sel_host)]
-        if sel_inc != "Todos":
+        if sel_inc != "Todos los Incidentes":
             filtered = filtered[filtered["Incident_Tag"] == sel_inc]
         if search_q.strip():
             q = search_q.strip().lower()
@@ -784,21 +976,21 @@ with tab_logs:
             )
             filtered = filtered[mask_q]
 
-    st.caption(f"Mostrando **{len(filtered):,}** de **{len(df):,}** eventos SIEM.")
-    display_cols = [
-        "Log_ID",
-        "Timestamp",
-        "Incident_ID",
-        "Severity",
-        "Hostname",
-        "Event_ID",
-        "User",
-        "Source_IP",
-        "Destination",
-        "Log_Source",
-        "Event_Description",
-        "Process_CommandLine",
-        "Result",
-        "Hidden_Critical_Info",
-    ]
-    st.dataframe(filtered[display_cols], width="stretch", height=440, hide_index=True)
+        st.caption(f"Mostrando **{len(filtered):,}** de **{len(df):,}** registros SIEM.")
+        display_cols = [
+            "Log_ID",
+            "Timestamp",
+            "Incident_ID",
+            "Severity",
+            "Hostname",
+            "Event_ID",
+            "User",
+            "Source_IP",
+            "Destination",
+            "Log_Source",
+            "Event_Description",
+            "Process_CommandLine",
+            "Result",
+            "Hidden_Critical_Info",
+        ]
+        st.dataframe(filtered[display_cols], width="stretch", height=400, hide_index=True)

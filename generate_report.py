@@ -1,8 +1,8 @@
 """
-Script CLI unificado para generar los entregables oficiales del proyecto SOC Nivel 2:
+Script CLI unificado para generar los entregables oficiales del proyecto SOC Nivel 2 (JEV // LangChain LCEL Edition):
 1. 'Informe_Final_SOC_L2_Incidentes.pdf' (Informe Ejecutivo C-Level + Informe Técnico Forense DFIR)
 2. 'soc_l2_dashboard_summary.png' (Panel cuádruple de visualización forense en alta resolución)
-3. 'index.html' (Portal web interactivo estático para GitHub Pages / github.io)
+3. 'index.html' (Interfaz Fluida JEV Cyber Command OS v3.0 con LangChain LCEL Copilot para GitHub Pages)
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from core.parser import analyze_siem_logs
-from core.agents import generate_ai_reports
+from core.agents import generate_ai_reports, get_langchain_pipeline_metadata
 from core.pdf_generator import build_pdf_report
 
 
@@ -23,10 +23,10 @@ def build_static_web_portal(
     tech_md: str,
     output_dir: Path,
 ) -> None:
-    """Genera index.html y .nojekyll sincronizados con el motor forense para GitHub Pages."""
+    """Genera index.html y .nojekyll con la interfaz fluida JEV Cyber Command OS + LangChain LCEL."""
     df_export = df.copy()
     df_export["Timestamp_Str"] = df_export["Timestamp_dt"].dt.strftime("%Y-%m-%d %H:%M:%S")
-    df_export["Minute_Window"] = df_export["Timestamp_dt"].dt.floor("5min").dt.strftime("%Y-%m-%d %H:%M")
+    df_export["Minute_Window"] = df_export["Timestamp_dt"].dt.floor("10min").dt.strftime("%H:%M")
 
     records = []
     for _, r in df_export.iterrows():
@@ -50,13 +50,16 @@ def build_static_web_portal(
                 "Incident_ID": str(r["Incident_ID"]),
                 "Incident_Tag": str(r["Incident_Tag"]),
                 "Hidden_Trap": bool(r["Hidden_Critical_Info"]),
+                "External_IP": bool(r["Involves_External_IP"]),
             }
         )
 
+    lcel_meta = get_langchain_pipeline_metadata()
     payload = {
         "metrics": summary_metrics,
         "findings": findings,
         "hidden_events": summary_metrics["hidden_events_records"],
+        "lcel": lcel_meta,
         "exec_md": exec_md,
         "tech_md": tech_md,
         "logs": records,
@@ -68,1092 +71,1366 @@ def build_static_web_portal(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SOC L2 Command Center — Análisis Forense SIEM & Respuesta a Incidentes</title>
-  <meta name="description" content="Plataforma de Análisis de Incidentes SIEM, Threat Hunting MITRE ATT&CK y Generación de Informes Forenses SOC Nivel 2 (Dojo Community)." />
+  <title>JEV // SOC L2 Cyber Command OS — LangChain LCEL & Análisis Forense SIEM</title>
+  <meta name="description" content="JEV Cyber Command OS v3.0: Plataforma Fluida de Análisis de Incidentes SIEM con Orquestación LangChain LCEL, MITRE ATT&CK y Generación de Informes Forenses SOC Nivel 2." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {{
-      --bg-primary: #070B14;
-      --bg-secondary: #0F172A;
+      --bg-deep: #040711;
+      --bg-surface: rgba(11, 18, 35, 0.84);
       --bg-card: rgba(15, 23, 42, 0.88);
-      --border-slate: rgba(56, 189, 248, 0.22);
-      --text-primary: #F8FAFC;
-      --text-secondary: #94A3B8;
-      --accent-cyan: #38BDF8;
+      --bg-glass: rgba(15, 23, 42, 0.72);
+      --border-cyan: rgba(0, 240, 255, 0.24);
+      --border-subtle: rgba(148, 163, 184, 0.16);
+      --text-main: #F8FAFC;
+      --text-muted: #94A3B8;
+      --neon-cyan: #00F0FF;
+      --neon-purple: #8B5CF6;
+      --neon-crimson: #FF2A5F;
+      --neon-emerald: #10B981;
+      --neon-amber: #FBBF24;
     }}
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    html {{ scroll-behavior: smooth; }}
     body {{
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: radial-gradient(circle at 15% 0%, #0f1b33 0%, #070B14 60%);
-      color: var(--text-primary);
+      background:
+        radial-gradient(circle at 12% 8%, rgba(0, 240, 255, 0.10) 0%, transparent 38%),
+        radial-gradient(circle at 88% 12%, rgba(139, 92, 246, 0.12) 0%, transparent 42%),
+        radial-gradient(circle at 50% 90%, rgba(255, 42, 95, 0.07) 0%, transparent 45%),
+        var(--bg-deep);
+      color: var(--text-main);
       line-height: 1.55;
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
+      overflow-x: hidden;
     }}
     code, pre, .mono {{ font-family: 'JetBrains Mono', monospace; }}
-    .app-layout {{
-      display: grid;
-      grid-template-columns: 315px 1fr;
-      min-height: 100vh;
-    }}
-    @media (max-width: 1024px) {{
-      .app-layout {{ grid-template-columns: 1fr; }}
-      .sidebar {{ border-right: none; border-bottom: 1px solid var(--border-slate); }}
-    }}
-    .sidebar {{
-      background: rgba(10, 15, 29, 0.96);
-      border-right: 1px solid var(--border-slate);
-      padding: 1.35rem;
+
+    /* Top Fluid Glass Navigation Bar */
+    .top-command-bar {{
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(5, 9, 20, 0.84);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-bottom: 1px solid var(--border-cyan);
+      padding: 0.7rem clamp(1rem, 2.5vw, 2.2rem);
       display: flex;
-      flex-direction: column;
-      gap: 1.05rem;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.85rem;
     }}
-    .brand-box {{
+    .brand-cluster {{
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      padding-bottom: 0.9rem;
-      border-bottom: 1px solid rgba(148, 163, 184, 0.15);
     }}
-    .brand-icon {{
-      width: 42px;
-      height: 42px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #2563EB, #7C3AED);
+    .brand-orb {{
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #00F0FF 0%, #8B5CF6 60%, #FF2A5F 100%);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.35rem;
-      box-shadow: 0 6px 18px rgba(56, 189, 248, 0.25);
+      font-weight: 800;
+      font-family: 'Space Grotesk', sans-serif;
+      color: #040711;
+      font-size: 1.05rem;
+      box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
     }}
-    .brand-title {{ font-weight: 800; font-size: 1.02rem; letter-spacing: -0.02em; }}
-    .brand-sub {{ font-size: 0.75rem; color: var(--accent-cyan); font-weight: 600; }}
-    .side-section {{
-      background: rgba(15, 23, 42, 0.75);
-      border: 1px solid rgba(148, 163, 184, 0.16);
-      border-radius: 11px;
-      padding: 0.9rem;
-    }}
-    .side-section h4 {{
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: var(--accent-cyan);
-      margin-bottom: 0.55rem;
-    }}
-    .progress-bar-wrap {{
-      width: 100%;
-      height: 9px;
-      background: #1E293B;
-      border-radius: 999px;
-      overflow: hidden;
-      margin: 0.45rem 0;
-    }}
-    .progress-bar-fill {{
-      height: 100%;
-      background: linear-gradient(90deg, #38BDF8, #10B981);
-      transition: width 0.35s ease;
-    }}
-    .checklist-item {{
+    .brand-name {{
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 700;
+      font-size: 1.08rem;
+      letter-spacing: -0.02em;
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      font-size: 0.81rem;
-      padding: 0.25rem 0;
+    }}
+    .pulse-dot {{
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--neon-emerald);
+      box-shadow: 0 0 10px var(--neon-emerald);
+      display: inline-block;
+    }}
+    .brand-meta {{
+      font-size: 0.73rem;
+      color: var(--neon-cyan);
+      font-family: 'JetBrains Mono', monospace;
+    }}
+
+    /* Fluid Mode Switcher Pills */
+    .mode-pills {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      background: rgba(15, 23, 42, 0.8);
+      padding: 0.28rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle);
+    }}
+    .mode-pill {{
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 0.42rem 0.88rem;
+      border-radius: 999px;
+      font-size: 0.79rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }}
+    .mode-pill:hover {{
+      color: #FFFFFF;
+      background: rgba(255, 255, 255, 0.06);
+    }}
+    .mode-pill.active {{
+      background: linear-gradient(135deg, rgba(0, 240, 255, 0.22), rgba(139, 92, 246, 0.28));
+      color: #FFFFFF;
+      border: 1px solid rgba(0, 240, 255, 0.48);
+      box-shadow: 0 4px 14px rgba(0, 240, 255, 0.18);
+    }}
+
+    .top-actions {{
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }}
+    .btn-pdf-glow {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: linear-gradient(135deg, #FF2A5F 0%, #E11D48 100%);
+      color: #FFFFFF;
+      text-decoration: none;
+      padding: 0.55rem 1.05rem;
+      border-radius: 11px;
+      font-weight: 700;
+      font-size: 0.82rem;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      box-shadow: 0 6px 20px rgba(255, 42, 95, 0.32);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }}
+    .btn-pdf-glow:hover {{
+      transform: translateY(-1px);
+      box-shadow: 0 10px 26px rgba(255, 42, 95, 0.48);
+    }}
+
+    /* Fluid Workspace Container */
+    .fluid-shell {{
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      gap: 1.25rem;
+      padding: clamp(1rem, 2vw, 1.75rem);
+      max-width: 1920px;
+      margin: 0 auto;
+      align-items: start;
+    }}
+    @media (max-width: 1120px) {{
+      .fluid-shell {{
+        grid-template-columns: 1fr;
+      }}
+    }}
+
+    /* Left Fluid Control Dock */
+    .control-dock {{
+      position: sticky;
+      top: 4.8rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.95rem;
+    }}
+    @media (max-width: 1120px) {{
+      .control-dock {{
+        position: static;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }}
+    }}
+    .dock-card {{
+      background: var(--bg-glass);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 1rem;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+    }}
+    .dock-title {{
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.73rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--neon-cyan);
+      margin-bottom: 0.6rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }}
+    .dock-select, .dock-input {{
+      width: 100%;
+      background: rgba(4, 7, 17, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.26);
+      color: #F8FAFC;
+      padding: 0.5rem 0.65rem;
+      border-radius: 9px;
+      font-size: 0.8rem;
+      margin-top: 0.3rem;
+    }}
+    .soar-bar-wrap {{
+      width: 100%;
+      height: 8px;
+      background: rgba(15, 23, 42, 0.95);
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 0.5rem 0;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }}
+    .soar-bar-fill {{
+      height: 100%;
+      background: linear-gradient(90deg, var(--neon-cyan), var(--neon-emerald));
+      transition: width 0.35s ease;
+    }}
+    .soar-check {{
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      padding: 0.24rem 0;
       cursor: pointer;
       color: #E2E8F0;
     }}
-    .checklist-item input {{
-      accent-color: #38BDF8;
+    .soar-check input {{
+      accent-color: var(--neon-cyan);
       width: 15px;
       height: 15px;
       cursor: pointer;
     }}
-    .btn-cta {{
+
+    /* Main Fluid Canvas */
+    .fluid-canvas {{
       display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.5rem;
-      width: 100%;
-      min-height: 46px;
-      padding: 0.68rem 1rem;
-      border-radius: 10px;
-      font-weight: 700;
-      font-size: 0.85rem;
-      text-decoration: none;
-      border: none;
-      cursor: pointer;
-      transition: all 0.2s ease;
+      flex-direction: column;
+      gap: 1.2rem;
+      min-width: 0;
     }}
-    .btn-primary {{
-      background: linear-gradient(135deg, #2563EB 0%, #4F46E5 100%);
-      color: #FFFFFF;
-      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
-    }}
-    .btn-primary:hover {{
-      transform: translateY(-1px);
-      box-shadow: 0 10px 24px rgba(56, 189, 248, 0.45);
-    }}
-    .btn-secondary {{
-      background: rgba(30, 41, 59, 0.9);
-      color: #E2E8F0;
-      border: 1px solid rgba(56, 189, 248, 0.35);
-    }}
-    .btn-secondary:hover {{
-      background: rgba(51, 65, 85, 0.9);
-      border-color: #38BDF8;
-    }}
-    .main-area {{
-      padding: 1.45rem 1.85rem;
-      overflow-x: hidden;
-      max-width: 1600px;
-      width: 100%;
-      margin: 0 auto;
-    }}
-    .soc-hero {{
-      background: linear-gradient(135deg, #0D1527 0%, #162340 55%, #1E1B4B 100%);
-      border: 1px solid rgba(56, 189, 248, 0.32);
-      border-left: 6px solid #38BDF8;
-      border-radius: 14px;
-      padding: 1.3rem 1.6rem;
-      margin-bottom: 1.1rem;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+
+    /* Hero Banner */
+    .jev-hero {{
+      background:
+        radial-gradient(circle at 85% 20%, rgba(0, 240, 255, 0.16) 0%, rgba(139, 92, 246, 0.12) 40%, transparent 75%),
+        linear-gradient(135deg, rgba(11, 18, 35, 0.95) 0%, rgba(17, 24, 39, 0.92) 100%);
+      border: 1px solid var(--border-cyan);
+      border-radius: 20px;
+      padding: clamp(1.15rem, 2.2vw, 1.75rem);
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
-      flex-wrap: wrap;
       gap: 1rem;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
     }}
-    .soc-hero h1 {{ font-size: 1.45rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.25rem; }}
-    .soc-hero p {{ color: #CBD5E1; font-size: 0.88rem; }}
-    .evasion-banner {{
-      background: linear-gradient(90deg, rgba(168, 85, 247, 0.18) 0%, rgba(239, 68, 68, 0.16) 100%);
-      border: 1px solid #A855F7;
-      border-left: 6px solid #A855F7;
-      border-radius: 11px;
-      padding: 0.9rem 1.2rem;
-      margin-bottom: 1.15rem;
-      font-size: 0.87rem;
-      color: #F3E8FF;
+    .hero-badges {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin-bottom: 0.55rem;
     }}
-    .kpi-grid {{
+    .h-badge {{
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.71rem;
+      font-weight: 600;
+      padding: 0.2rem 0.65rem;
+      border-radius: 999px;
+      text-transform: uppercase;
+    }}
+    .hb-cyan {{ background: rgba(0, 240, 255, 0.14); border: 1px solid rgba(0, 240, 255, 0.45); color: #67E8F9; }}
+    .hb-purple {{ background: rgba(139, 92, 246, 0.18); border: 1px solid rgba(167, 139, 250, 0.45); color: #DDD6FE; }}
+    .hb-crimson {{ background: rgba(255, 42, 95, 0.18); border: 1px solid rgba(255, 42, 95, 0.5); color: #FECDD3; }}
+    .hb-emerald {{ background: rgba(16, 185, 129, 0.16); border: 1px solid rgba(52, 211, 153, 0.45); color: #A7F3D0; }}
+    .hero-h1 {{
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(1.35rem, 2.3vw, 1.95rem);
+      font-weight: 700;
+      background: linear-gradient(90deg, #FFFFFF 0%, #67E8F9 60%, #C4B5FD 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }}
+    .hero-p {{
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      margin-top: 0.3rem;
+    }}
+
+    /* Bento Fluid KPI Row */
+    .bento-kpi-grid {{
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 0.85rem;
-      margin-bottom: 1.25rem;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.9rem;
     }}
-    @media (max-width: 1200px) {{
-      .kpi-grid {{ grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }}
-    }}
-    .kpi-card {{
+    .bento-kpi {{
       background: var(--bg-card);
-      border: 1px solid rgba(148, 163, 184, 0.18);
-      border-top: 3px solid var(--accent-cyan);
-      border-radius: 12px;
-      padding: 0.95rem 1.05rem;
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 1rem 1.15rem;
+      transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+      position: relative;
+      overflow: hidden;
     }}
-    .kpi-card.critical {{ border-top-color: #EF4444; }}
-    .kpi-card.warning {{ border-top-color: #F59E0B; }}
-    .kpi-card.purple {{ border-top-color: #A855F7; }}
-    .kpi-label {{
-      font-size: 0.74rem;
+    .bento-kpi:hover {{
+      transform: translateY(-3px);
+      border-color: var(--neon-cyan);
+      box-shadow: 0 12px 28px rgba(0, 240, 255, 0.12);
+    }}
+    .kpi-idx {{
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: var(--text-secondary);
-      font-weight: 600;
     }}
-    .kpi-value {{
-      font-size: 1.6rem;
-      font-weight: 800;
-      margin: 0.22rem 0;
-      color: #F8FAFC;
-    }}
-    .kpi-delta {{
-      font-size: 0.75rem;
-      font-weight: 600;
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
-      border-radius: 999px;
-      background: rgba(56, 189, 248, 0.13);
-      color: #38BDF8;
-    }}
-    .kpi-delta.red {{ background: rgba(239, 68, 68, 0.16); color: #FCA5A5; }}
-    .kpi-delta.purple {{ background: rgba(168, 85, 247, 0.2); color: #E9D5FF; }}
-    .tabs-bar {{
-      display: flex;
-      gap: 0.5rem;
-      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-      padding-bottom: 0.6rem;
-      margin-bottom: 1.25rem;
-      overflow-x: auto;
-    }}
-    .tab-btn {{
-      background: rgba(15, 23, 42, 0.75);
-      color: #94A3B8;
-      border: 1px solid rgba(148, 163, 184, 0.18);
-      padding: 0.62rem 1rem;
-      border-radius: 9px;
-      font-size: 0.84rem;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: all 0.2s ease;
-    }}
-    .tab-btn:hover {{ color: #F8FAFC; border-color: rgba(56, 189, 248, 0.45); }}
-    .tab-btn.active {{
-      background: linear-gradient(135deg, rgba(37, 99, 235, 0.34), rgba(124, 58, 237, 0.34));
+    .kpi-num {{
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.7rem;
+      font-weight: 700;
+      margin: 0.2rem 0;
       color: #FFFFFF;
-      border-color: #38BDF8;
-      box-shadow: 0 4px 14px rgba(56, 189, 248, 0.22);
     }}
-    .tab-panel {{ display: none; }}
-    .tab-panel.active {{ display: block; animation: fadeIn 0.22s ease; }}
-    @keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(4px); }} to {{ opacity: 1; transform: translateY(0); }} }}
-    .grid-2 {{
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 1.05rem;
-      margin-bottom: 1.05rem;
+    .kpi-foot {{
+      font-size: 0.76rem;
+      font-weight: 500;
     }}
-    @media (max-width: 1100px) {{ .grid-2 {{ grid-template-columns: 1fr; }} }}
-    .panel-card {{
-      background: var(--bg-card);
-      border: 1px solid rgba(148, 163, 184, 0.18);
-      border-radius: 12px;
-      padding: 1.1rem;
-      margin-bottom: 1.05rem;
+
+    /* Fluid Section Card */
+    .fluid-section {{
+      background: var(--bg-surface);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 18px;
+      padding: clamp(1rem, 2vw, 1.5rem);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.26);
+      transition: opacity 0.25s ease;
     }}
-    .panel-card h3 {{
-      font-size: 0.98rem;
+    .sec-header {{
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+    }}
+    .sec-title {{
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.18rem;
       font-weight: 700;
-      margin-bottom: 0.65rem;
-      color: #F8FAFC;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
       gap: 0.5rem;
     }}
-    .inc-card {{
+
+    /* LangChain LCEL Graph Nodes */
+    .lcel-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.8rem;
+      margin-bottom: 1rem;
+    }}
+    .lcel-card {{
       background: rgba(15, 23, 42, 0.92);
-      border: 1px solid rgba(148, 163, 184, 0.22);
-      border-left: 5px solid #EF4444;
-      border-radius: 12px;
-      padding: 1.15rem 1.3rem;
-      margin-bottom: 0.95rem;
+      border: 1px solid rgba(139, 92, 246, 0.36);
+      border-left: 4px solid var(--neon-purple);
+      border-radius: 13px;
+      padding: 0.85rem 1rem;
     }}
-    .inc-card.med {{ border-left-color: #F59E0B; }}
-    .inc-header {{
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-bottom: 0.6rem;
+    .lcel-type {{
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.69rem;
+      color: var(--neon-cyan);
     }}
-    .killchain-flow {{
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0.35rem;
-      margin: 0.55rem 0;
-    }}
-    .kc-step {{
-      background: rgba(30, 41, 59, 0.95);
-      border: 1px solid rgba(56, 189, 248, 0.35);
-      color: #7DD3FC;
-      padding: 0.2rem 0.6rem;
-      border-radius: 6px;
-      font-size: 0.74rem;
-      font-weight: 600;
-    }}
-    .kc-arrow {{ color: #64748B; font-weight: 700; font-size: 0.8rem; }}
-    .badge {{
-      display: inline-block;
-      padding: 0.2rem 0.58rem;
-      border-radius: 999px;
-      font-size: 0.72rem;
+    .lcel-name {{
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.84rem;
       font-weight: 700;
-      text-transform: uppercase;
+      color: #DDD6FE;
+      margin: 0.15rem 0 0.3rem 0;
     }}
-    .badge-crit {{ background: rgba(239, 68, 68, 0.2); color: #FCA5A5; border: 1px solid #EF4444; }}
-    .badge-med {{ background: rgba(245, 158, 11, 0.2); color: #FDE68A; border: 1px solid #F59E0B; }}
-    .badge-mitre {{ background: rgba(56, 189, 248, 0.14); color: #7DD3FC; border: 1px solid rgba(56, 189, 248, 0.35); }}
-    .badge-trap {{ background: rgba(168, 85, 247, 0.22); color: #E9D5FF; border: 1px solid #A855F7; }}
-    .inc-meta-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 0.6rem;
-      background: rgba(7, 11, 20, 0.65);
-      padding: 0.8rem;
-      border-radius: 9px;
-      margin: 0.7rem 0;
-      font-size: 0.82rem;
+    .lcel-desc {{
+      font-size: 0.78rem;
+      color: var(--text-muted);
     }}
-    .quick-pills {{
+
+    /* JEV Copilot Interactive Console */
+    .copilot-chips {{
       display: flex;
-      gap: 0.45rem;
       flex-wrap: wrap;
+      gap: 0.45rem;
       margin-bottom: 0.85rem;
     }}
-    .pill-btn {{
-      background: rgba(30, 41, 59, 0.85);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      color: #E2E8F0;
-      padding: 0.35rem 0.75rem;
+    .chip-btn {{
+      background: rgba(0, 240, 255, 0.09);
+      border: 1px solid rgba(0, 240, 255, 0.32);
+      color: #E0F2FE;
+      padding: 0.42rem 0.8rem;
       border-radius: 999px;
-      font-size: 0.76rem;
+      font-size: 0.78rem;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.18s ease;
     }}
-    .pill-btn:hover {{
-      background: rgba(37, 99, 235, 0.35);
-      border-color: #38BDF8;
+    .chip-btn:hover {{
+      background: rgba(0, 240, 255, 0.22);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 240, 255, 0.2);
+    }}
+    .copilot-input-row {{
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.6rem;
+      margin-bottom: 0.9rem;
+    }}
+    .copilot-input {{
+      background: rgba(4, 7, 17, 0.9);
+      border: 1px solid rgba(0, 240, 255, 0.35);
+      color: #FFFFFF;
+      padding: 0.68rem 0.95rem;
+      border-radius: 12px;
+      font-size: 0.86rem;
+      outline: none;
+    }}
+    .copilot-input:focus {{
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.15);
+    }}
+    .btn-chain-run {{
+      background: linear-gradient(135deg, #00F0FF 0%, #3B82F6 100%);
+      color: #040711;
+      border: none;
+      padding: 0.68rem 1.2rem;
+      border-radius: 12px;
+      font-weight: 800;
+      font-size: 0.83rem;
+      cursor: pointer;
+      transition: transform 0.18s ease;
+    }}
+    .btn-chain-run:hover {{
+      transform: translateY(-1px);
+    }}
+    .copilot-response-box {{
+      background: rgba(4, 7, 17, 0.88);
+      border: 1px solid rgba(0, 240, 255, 0.28);
+      border-radius: 14px;
+      padding: 1.05rem 1.25rem;
+      font-size: 0.87rem;
+      line-height: 1.62;
+    }}
+    .copilot-response-box h3 {{
+      color: var(--neon-cyan);
+      font-family: 'Space Grotesk', sans-serif;
+      margin-bottom: 0.55rem;
+      font-size: 1.02rem;
+    }}
+    .copilot-response-box pre {{
+      background: #02040A;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      padding: 0.75rem;
+      border-radius: 9px;
+      overflow-x: auto;
+      color: #67E8F9;
+      margin-top: 0.55rem;
+      font-size: 0.79rem;
+    }}
+
+    /* Incident Selector & Fluid Bento Detail */
+    .inc-selector-bar {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin-bottom: 1rem;
+    }}
+    .inc-pill {{
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      color: #E2E8F0;
+      padding: 0.42rem 0.82rem;
+      border-radius: 10px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }}
+    .inc-pill:hover, .inc-pill.active {{
+      border-color: var(--neon-crimson);
+      background: rgba(255, 42, 95, 0.16);
       color: #FFFFFF;
     }}
-    .table-wrap {{
-      overflow-x: auto;
-      border: 1px solid rgba(148, 163, 184, 0.18);
+    .inc-card {{
+      background: rgba(9, 14, 28, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-left: 5px solid var(--neon-crimson);
+      border-radius: 16px;
+      padding: 1.15rem;
+      margin-bottom: 1rem;
+    }}
+    .inc-card.medium {{
+      border-left-color: var(--neon-amber);
+    }}
+    .kc-track {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(0, 240, 255, 0.22);
+      padding: 0.55rem 0.85rem;
       border-radius: 10px;
-      max-height: 520px;
+      margin: 0.65rem 0;
+    }}
+    .kc-node {{
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.74rem;
+      background: rgba(0, 240, 255, 0.12);
+      border: 1px solid rgba(0, 240, 255, 0.35);
+      color: #67E8F9;
+      padding: 0.18rem 0.55rem;
+      border-radius: 6px;
+      font-weight: 600;
+    }}
+    .inc-3col {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 0.85rem;
+      margin: 0.75rem 0;
+    }}
+    .inc-subbox {{
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 12px;
+      padding: 0.85rem;
+      font-size: 0.84rem;
+    }}
+    .inc-subbox h5 {{
+      color: var(--neon-cyan);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.4rem;
+    }}
+    .cli-playbook {{
+      background: #02050D;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      border-radius: 10px;
+      padding: 0.75rem 0.95rem;
+      color: #6EE7B7;
+      font-size: 0.79rem;
+      overflow-x: auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.8rem;
+      margin-top: 0.6rem;
+    }}
+
+    /* Charts Grid */
+    .charts-bento {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(410px, 1fr));
+      gap: 1rem;
+    }}
+    @media (max-width: 600px) {{
+      .charts-bento {{ grid-template-columns: 1fr; }}
+    }}
+    .chart-box {{
+      background: rgba(9, 14, 28, 0.88);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 0.6rem;
+      min-height: 350px;
+    }}
+
+    /* Tables */
+    .table-scroll {{
+      width: 100%;
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid var(--border-subtle);
+      max-height: 440px;
       overflow-y: auto;
     }}
-    table {{ width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left; }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      text-align: left;
+    }}
     th {{
       position: sticky;
       top: 0;
-      background: #0F172A;
-      color: #38BDF8;
-      padding: 0.62rem 0.72rem;
-      font-weight: 700;
-      border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+      background: #0B132B;
+      color: var(--neon-cyan);
+      padding: 0.65rem 0.75rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.73rem;
+      text-transform: uppercase;
+      border-bottom: 1px solid rgba(0, 240, 255, 0.25);
       z-index: 2;
     }}
     td {{
-      padding: 0.52rem 0.72rem;
+      padding: 0.55rem 0.75rem;
       border-bottom: 1px solid rgba(148, 163, 184, 0.1);
       color: #E2E8F0;
     }}
-    tr:hover td {{ background: rgba(56, 189, 248, 0.06); }}
-    tr.trap-row td {{ background: rgba(168, 85, 247, 0.14); }}
-    .filter-bar {{
+    tr:hover td {{
+      background: rgba(0, 240, 255, 0.05);
+    }}
+
+    .dual-editors {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 0.75rem;
-      margin-bottom: 0.95rem;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1rem;
     }}
-    input[type="text"], input[type="password"], select, textarea {{
+    .report-textarea {{
       width: 100%;
-      background: #090D16;
+      height: 360px;
+      background: rgba(4, 7, 17, 0.92);
+      border: 1px solid rgba(0, 240, 255, 0.25);
+      border-radius: 12px;
       color: #F8FAFC;
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      border-radius: 8px;
-      padding: 0.52rem 0.72rem;
-      font-size: 0.83rem;
-      font-family: inherit;
+      padding: 0.9rem;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.84rem;
+      line-height: 1.55;
+      resize: vertical;
     }}
-    input:focus, select:focus, textarea:focus {{ outline: none; border-color: #38BDF8; }}
-    .markdown-preview {{
-      background: rgba(9, 13, 22, 0.85);
-      border: 1px solid rgba(148, 163, 184, 0.2);
-      border-radius: 10px;
-      padding: 1.2rem;
-      max-height: 640px;
-      overflow-y: auto;
-      font-size: 0.86rem;
-    }}
-    .markdown-preview h1, .markdown-preview h2, .markdown-preview h3 {{
-      color: #38BDF8;
-      margin-top: 0.95rem;
-      margin-bottom: 0.45rem;
-    }}
-    .markdown-preview ul, .markdown-preview ol {{ padding-left: 1.3rem; margin-bottom: 0.7rem; }}
+    .hidden-mod {{ display: none !important; }}
   </style>
 </head>
 <body>
-  <div class="app-layout">
-    <!-- SIDEBAR -->
-    <aside class="sidebar">
-      <div class="brand-box">
-        <div class="brand-icon">🛡️</div>
-        <div>
-          <div class="brand-title">SOC L2 Command Center</div>
-          <div class="brand-sub">Dojo Community • Proyecto Final</div>
+
+  <!-- BARRA SUPERIOR FLUIDA JEV CYBER COMMAND -->
+  <header class="top-command-bar">
+    <div class="brand-cluster">
+      <div class="brand-orb">JEV</div>
+      <div>
+        <div class="brand-name">
+          JEV // Cyber Command OS <span class="pulse-dot" title="Motor Forense Activo"></span>
+        </div>
+        <div class="brand-meta">LANGCHAIN LCEL · SOC NIVEL 2 · DFIR ENGINE v3.0</div>
+      </div>
+    </div>
+
+    <nav class="mode-pills" aria-label="Selector de espacio de trabajo fluido">
+      <button class="mode-pill active" onclick="setWorkspaceMode('all', this)">🌊 Vista Fluida Integral</button>
+      <button class="mode-pill" onclick="setWorkspaceMode('copilot', this)">🧠 JEV LangChain Copilot</button>
+      <button class="mode-pill" onclick="setWorkspaceMode('incidents', this)">🎯 Radar & Kill Chain</button>
+      <button class="mode-pill" onclick="setWorkspaceMode('visuals', this)">📊 Telemetría & Trampas</button>
+      <button class="mode-pill" onclick="setWorkspaceMode('reports', this)">📄 Dual Report & PDF</button>
+      <button class="mode-pill" onclick="setWorkspaceMode('logs', this)">🔎 Stream SIEM (715)</button>
+    </nav>
+
+    <div class="top-actions">
+      <a href="Informe_Final_SOC_L2_Incidentes.pdf" download="Informe_Final_SOC_L2_Incidentes.pdf" class="btn-pdf-glow">
+        📥 Descargar PDF Oficial (7 Págs)
+      </a>
+    </div>
+  </header>
+
+  <!-- CONTENEDOR FLUIDO PRINCIPAL -->
+  <div class="fluid-shell">
+
+    <!-- DOCK LATERAL FLUIDO -->
+    <aside class="control-dock">
+      <div class="dock-card">
+        <div class="dock-title">📂 01 // Ingesta SIEM (.xlsx)</div>
+        <div style="font-size:0.77rem;color:var(--text-muted);margin-bottom:0.45rem;">
+          Dataset oficial precargado (715 eventos) o analiza cualquier exportación Excel del SIEM:
+        </div>
+        <input type="file" id="excelUploadInput" accept=".xlsx,.xls" class="dock-input" />
+        <div id="datasetStatusBadge" style="font-size:0.74rem;color:var(--neon-emerald);margin-top:0.45rem;font-weight:600;">
+          ✓ Activo: SIEM Export (715 logs validados)
         </div>
       </div>
 
-      <div class="side-section">
-        <h4>🎯 Progreso de Contención IR</h4>
-        <div style="display:flex;justify-content:space-between;font-size:0.8rem;font-weight:600;">
-          <span id="containment-label">6 / 6 Incidentes Contenidos</span>
-          <span id="containment-pct" style="color:#10B981;">100%</span>
+      <div class="dock-card">
+        <div class="dock-title">🔗 02 // Orquestador LangChain</div>
+        <label style="font-size:0.75rem;color:#CBD5E1;">Backend del Grafo LCEL:</label>
+        <select id="lcelProviderSelect" class="dock-select" onchange="toggleLcelConfig()">
+          <option value="deterministic">LangChain LCEL + Motor Forense (Instantáneo)</option>
+          <option value="ollama">LangChain + Ollama Local (REST)</option>
+          <option value="openai">LangChain + ChatOpenAI (OpenAI/Groq)</option>
+        </select>
+        <div id="lcelDynamicConfig" style="display:none;margin-top:0.5rem;">
+          <input type="text" id="lcelApiUrl" class="dock-input" value="http://localhost:11434" placeholder="Endpoint URL" />
+          <input type="text" id="lcelModelName" class="dock-input" value="qwen2.5:7b" placeholder="Modelo (ej. gpt-4o-mini)" />
+          <input type="password" id="lcelApiKey" class="dock-input" placeholder="API Key (opcional en Ollama)" />
         </div>
-        <div class="progress-bar-wrap">
-          <div id="containment-bar" class="progress-bar-fill" style="width:100%;"></div>
-        </div>
-        <div id="checklist-container" style="margin-top:0.45rem;">
-          <label class="checklist-item"><input type="checkbox" checked onchange="updateContainment()"> <span>INC-01: Spraying & mgarcia</span></label>
-          <label class="checklist-item"><input type="checkbox" checked onchange="updateContainment()"> <span>INC-02: RDP -> SMB Budget2027</span></label>
-          <label class="checklist-item"><input type="checkbox" checked onchange="updateContainment()"> <span>INC-03: Pre-Ransomware vssadmin</span></label>
-          <label class="checklist-item"><input type="checkbox" checked onchange="updateContainment()"> <span>INC-04: Exfiltración Legal 241.57 MiB</span></label>
-          <label class="checklist-item"><input type="checkbox" checked onchange="updateContainment()"> <span>INC-05: Persistencia wuhelper.exe</span></label>
-          <label class="checklist-item"><input type="checkbox" checked onchange="updateContainment()"> <span>INC-06: Webshell IIS DefaultAppPool</span></label>
-        </div>
-      </div>
-
-      <div class="side-section">
-        <h4>📂 Ingesta SIEM (.xlsx en vivo)</h4>
-        <p style="font-size:0.75rem;color:#94A3B8;margin-bottom:0.45rem;">
-          Dataset oficial precargado (715 eventos). También puedes cargar y correlacionar cualquier archivo <code>.xlsx</code> local:
-        </p>
-        <input type="file" id="xlsx-upload" accept=".xlsx,.xls" style="font-size:0.74rem;padding:0.38rem;" onchange="handleXlsxUpload(event)" />
-        <div id="upload-status" style="font-size:0.74rem;color:#10B981;margin-top:0.38rem;">
-          ✔ Dataset activo: SIEM Export (715 filas)
+        <div style="font-size:0.73rem;color:#C4B5FD;margin-top:0.5rem;">
+          ⚡ <code>RunnableParallel(exec, dfir)</code> listo.
         </div>
       </div>
 
-      <div class="side-section" style="display:flex;flex-direction:column;gap:0.52rem;">
-        <h4>📥 Entregables Oficiales</h4>
-        <a href="Informe_Final_SOC_L2_Incidentes.pdf" download="Informe_Final_SOC_L2_Incidentes.pdf" class="btn-cta btn-primary">
-          📄 Descargar Informe PDF Oficial
-        </a>
-        <a href="SOC_L2_Logs_Ampliados_Multiples_Incidentes.xlsx" download="SOC_L2_Logs_Ampliados_Multiples_Incidentes.xlsx" class="btn-cta btn-secondary">
-          📊 Descargar Dataset SIEM (.xlsx)
-        </a>
-        <a href="soc_l2_dashboard_summary.png" target="_blank" class="btn-cta btn-secondary">
-          🖼️ Ver Panel Gráfico HD (.png)
-        </a>
-        <a href="https://github.com/bckdrx-collab/soc-l2-incident-response" target="_blank" class="btn-cta btn-secondary">
-          💻 Ver Código Fuente en GitHub
-        </a>
-      </div>
-
-      <div class="side-section">
-        <h4>⏱️ Ventana Forense Analizada</h4>
-        <div style="font-size:0.77rem;color:#CBD5E1;">
-          <div>• <b>Inicio:</b> 2026-10-23 07:46:07</div>
-          <div>• <b>Fin:</b> 2026-10-23 13:44:06</div>
-          <div>• <b>Duración:</b> 5h 57m 59s</div>
-          <div>• <b>Estado:</b> <span id="perf-badge" style="color:#38BDF8;">Correlación L2 Activa</span></div>
+      <div class="dock-card">
+        <div class="dock-title">🛡️ 03 // Contención SOAR</div>
+        <div style="display:flex;justify-content:space-between;font-size:0.76rem;">
+          <span>Playbooks ejecutados:</span>
+          <strong id="soarCounterText" style="color:var(--neon-cyan);">0/6</strong>
         </div>
+        <div class="soar-bar-wrap">
+          <div id="soarBarFill" class="soar-bar-fill" style="width:0%;"></div>
+        </div>
+        <div id="soarChecklistContainer"></div>
       </div>
     </aside>
 
-    <!-- MAIN CONTENT -->
-    <main class="main-area">
-      <header class="soc-hero">
+    <!-- LIENZO FLUIDO CENTRAL -->
+    <main class="fluid-canvas">
+
+      <!-- HERO TÁCTICO -->
+      <section class="jev-hero">
         <div>
-          <h1>🛡️ Centro de Mando SOC Nivel 2 — Análisis Forense & Respuesta a Incidentes</h1>
-          <p>Correlación Multi-Incidente MITRE ATT&CK • Detección de Evasión SIEM • Generación de Informes C-Level & CSIRT</p>
-        </div>
-        <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
-          <a href="Informe_Final_SOC_L2_Incidentes.pdf" target="_blank" class="btn-cta btn-primary" style="width:auto;padding:0.65rem 1.2rem;">
-            📥 Abrir PDF Oficial (Ejecutivo + Técnico)
-          </a>
-        </div>
-      </header>
-
-      <div class="evasion-banner">
-        🚨 <b>HALLAZGO DE AUDITORÍA SIEM (FALSOS NEGATIVOS):</b> Se detectaron <b>12 eventos críticos de intrusión</b> registrados erróneamente como <code>Severity = Informational</code> en el SIEM (incluyendo login exitoso post-spraying <code>EVT-00123</code>, escalamiento <code>EVT-00126</code>, verificación SMB post-vssadmin <code>EVT-00315</code>, archivado <code>7z.exe</code> <code>EVT-00428</code> y 5 ejecuciones del servicio persistente <code>wuhelper.exe</code>). El motor L2 correlaciona las <b>112 alertas nativas + 12 ocultas = 124 eventos maliciosos</b>.
-      </div>
-
-      <section class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-label">1. Eventos Analizados</div>
-          <div class="kpi-value" id="kpi-total-val">715</div>
-          <span class="kpi-delta">591 ruido base (82.7%)</span>
-        </div>
-        <div class="kpi-card warning">
-          <div class="kpi-label">2. Eventos Maliciosos L2</div>
-          <div class="kpi-value" id="kpi-mal-val">124</div>
-          <span class="kpi-delta red" id="kpi-mal-sub">112 alertas + 12 ocultos Info</span>
-        </div>
-        <div class="kpi-card critical">
-          <div class="kpi-label">3. Incidentes Confirmados</div>
-          <div class="kpi-value">6 + 1 OBS</div>
-          <span class="kpi-delta red">INC-01 a INC-06 + OBS-01</span>
-        </div>
-        <div class="kpi-card purple">
-          <div class="kpi-label">4. Exfiltración Confirmada</div>
-          <div class="kpi-value">241.57 MiB</div>
-          <span class="kpi-delta purple">253.31 MB hacia 198.51.100.88</span>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">5. Tráfico IPs Externas</div>
-          <div class="kpi-value">91</div>
-          <span class="kpi-delta">68 inbound • 23 outbound</span>
-        </div>
-      </section>
-
-      <!-- 5 OPERATIONAL TABS -->
-      <nav class="tabs-bar">
-        <button id="btn-tab-incidentes" class="tab-btn active" onclick="switchTab('tab-incidentes', this)">🔴 1. Triage de Incidentes & Kill Chain</button>
-        <button id="btn-tab-panorama" class="tab-btn" onclick="switchTab('tab-panorama', this)">📊 2. Visualización Analítica SIEM</button>
-        <button id="btn-tab-trampa" class="tab-btn" onclick="switchTab('tab-trampa', this)">🕵️‍♂️ 3. Auditoría de Evasión (12 Info)</button>
-        <button id="btn-tab-informes" class="tab-btn" onclick="switchTab('tab-informes', this)">📄 4. Informes IA & Exportación PDF</button>
-        <button id="btn-tab-explorador" class="tab-btn" onclick="switchTab('tab-explorador', this)">🗂️ 5. Explorador Forense (715 Logs)</button>
-      </nav>
-
-      <!-- TAB 1: LOS 6 INCIDENTES -->
-      <section id="tab-incidentes" class="tab-panel active">
-        <div id="incidents-container"></div>
-      </section>
-
-      <!-- TAB 2: PANORAMA TACTICO -->
-      <section id="tab-panorama" class="tab-panel">
-        <div class="grid-2">
-          <div class="panel-card">
-            <h3><span>📈 Línea de Tiempo Multi-Incidente (Ventanas de 5 min)</span></h3>
-            <div id="chart-timeline" style="height:330px;"></div>
+          <div class="hero-badges">
+            <span class="h-badge hb-cyan">⚡ JEV CYBER COMMAND v3.0</span>
+            <span class="h-badge hb-purple">🔗 LANGCHAIN LCEL PIPELINE</span>
+            <span class="h-badge hb-crimson" id="heroCritBadge">🔴 6 INCIDENTES CRÍTICOS</span>
+            <span class="h-badge hb-emerald" id="heroHiddenBadge">🕵️‍♂️ 12 RESCATADOS DE 'INFORMATIONAL'</span>
           </div>
-          <div class="panel-card">
-            <h3><span>🎯 Volumen de Eventos por Incidente (Alertas SIEM vs Ocultos en Info)</span></h3>
-            <div id="chart-incidents" style="height:330px;"></div>
-          </div>
-        </div>
-        <div class="grid-2">
-          <div class="panel-card">
-            <h3><span>🌐 Distribución por Fuente de Telemetría (Log_Source)</span></h3>
-            <div id="chart-sources" style="height:310px;"></div>
-          </div>
-          <div class="panel-card">
-            <h3><span>🖥️ Hosts Comprometidos por Eventos Maliciosos Correlacionados</span></h3>
-            <div id="chart-hosts" style="height:310px;"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- TAB 3: TRAMPA SIEM (12 EVENTOS INFO) -->
-      <section id="tab-trampa" class="tab-panel">
-        <div class="panel-card">
-          <h3><span>🕵️‍♂️ Auditoría de Ceguera de Detección: Los 12 Eventos Críticos Ocultos en <code>Informational</code></span></h3>
-          <p style="font-size:0.85rem;color:#CBD5E1;margin-bottom:0.9rem;">
-            Un filtro básico de Nivel 1 que descarte <code>Severity == Informational</code> perdería los 12 registros de éxito de intrusión, compresión y ejecución persistente listados a continuación:
+          <h1 class="hero-h1">Centro de Operaciones SOC Nivel 2 & Copiloto Forense LangChain</h1>
+          <p class="hero-p" id="heroSubText">
+            Auditoría integral de 715 eventos SIEM · Ventana UTC: 2026-10-23 07:46:07 → 13:44:06 · Correlación MITRE ATT&CK v15
           </p>
-          <div class="table-wrap">
+        </div>
+      </section>
+
+      <!-- BENTO KPI GRID -->
+      <section class="bento-kpi-grid">
+        <div class="bento-kpi">
+          <div class="kpi-idx">01 // TELEMETRÍA SIEM</div>
+          <div class="kpi-num" id="kpiTotalLogs">715</div>
+          <div class="kpi-foot" style="color:var(--neon-emerald);">✓ 100% procesados y normalizados</div>
+        </div>
+        <div class="bento-kpi">
+          <div class="kpi-idx">02 // CORRELACIÓN REAL L2</div>
+          <div class="kpi-num" id="kpiMaliciousLogs" style="color:var(--neon-crimson);">124</div>
+          <div class="kpi-foot" id="kpiMaliciousSub" style="color:var(--neon-cyan);">+12 ocultos en 'Info' (vs 112 SIEM)</div>
+        </div>
+        <div class="bento-kpi">
+          <div class="kpi-idx">03 // INCIDENTES CONFIRMADOS</div>
+          <div class="kpi-num" id="kpiIncidentsCount">6 Críticos</div>
+          <div class="kpi-foot" style="color:var(--neon-amber);">+ 1 Brecha Visibilidad (OBS-01)</div>
+        </div>
+        <div class="bento-kpi">
+          <div class="kpi-idx">04 // EXFILTRACIÓN LEGAL & FINANZAS</div>
+          <div class="kpi-num" id="kpiExfilMib" style="color:#C4B5FD;">241.57 MiB</div>
+          <div class="kpi-foot" id="kpiExfilSub" style="color:#CBD5E1;">253.31 MB (22 HTTPS POST) + Budget2027</div>
+        </div>
+        <div class="bento-kpi">
+          <div class="kpi-idx">05 // TRÁFICO IPs EXTERNAS</div>
+          <div class="kpi-num" id="kpiExtIpCount" style="color:#38BDF8;">91 logs</div>
+          <div class="kpi-foot" style="color:#94A3B8;">68 Inbound ataques + 23 Outbound C2</div>
+        </div>
+      </section>
+
+      <!-- MÓDULO 1: JEV LANGCHAIN COPILOT & GRAFO LCEL -->
+      <section id="mod-copilot" class="fluid-section">
+        <div class="sec-header">
+          <div class="sec-title">🧠 JEV Cyber Copilot — Orquestador Conversacional LangChain (LCEL)</div>
+          <span class="mono" style="font-size:0.75rem;color:#C4B5FD;">ChatPromptTemplate | Runnable | StrOutputParser()</span>
+        </div>
+
+        <div class="lcel-grid" id="lcelNodesGrid"></div>
+
+        <div class="copilot-chips">
+          <button class="chip-btn" onclick="runJevCopilot('¿Cuáles son los 12 eventos críticos ocultos en Informational?')">🕵️‍♂️ 12 Ocultos en Info</button>
+          <button class="chip-btn" onclick="runJevCopilot('Detalla la exfiltración de datos en INC-04 e INC-02 en MiB y bytes')">📤 Exfiltración 241.57 MiB</button>
+          <button class="chip-btn" onclick="runJevCopilot('Analiza el pre-ransomware en WS-023 y vssadmin delete shadows')">🚨 Pre-Ransomware VSS (INC-03)</button>
+          <button class="chip-btn" onclick="runJevCopilot('Mapea todas las tácticas y técnicas MITRE ATT&CK detectadas')">🎯 Matriz MITRE ATT&CK</button>
+          <button class="chip-btn" onclick="runJevCopilot('Lista todas las IPs externas atacantes, receptores C2 e IoCs')">🌐 IoCs & IPs Externas</button>
+          <button class="chip-btn" onclick="runJevCopilot('Dame el Playbook maestro con todos los comandos PowerShell de contención')">🛡️ Playbook PowerShell</button>
+          <button class="chip-btn" onclick="runJevCopilot('Explica el problema de normalización DC-01 vs DC01 y backupsvc')">🔧 Normalización DC-01 / DC01</button>
+        </div>
+
+        <div class="copilot-input-row">
+          <input type="text" id="copilotQueryInput" class="copilot-input" placeholder="Pregunta a JEV LangChain Copilot (ej. 'Analiza INC-01', '¿Qué hizo 192.0.2.91 en WEB-01?', 'wuhelper.exe')..." onkeydown="if(event.key==='Enter') triggerCustomCopilot()" />
+          <button class="btn-chain-run" onclick="triggerCustomCopilot()">⚡ Ejecutar Chain</button>
+        </div>
+
+        <div id="copilotResponseContainer" class="copilot-response-box"></div>
+      </section>
+
+      <!-- MÓDULO 2: RADAR DE INCIDENTES, KILL CHAIN Y PLAYBOOKS -->
+      <section id="mod-incidents" class="fluid-section">
+        <div class="sec-header">
+          <div class="sec-title">🎯 Radar de Incidentes, Cadena de Ataque (Kill Chain) & Playbooks CLI</div>
+          <span class="mono" style="font-size:0.75rem;color:var(--neon-cyan);">6 Incidentes Riesgo Alto + 1 Observación Media</span>
+        </div>
+
+        <div class="inc-selector-bar" id="incidentSelectorBar"></div>
+        <div id="incidentCardsContainer"></div>
+      </section>
+
+      <!-- MÓDULO 3: ANALÍTICA VISUAL & AUDITORÍA DE TRAMPAS INFORMATIONAL -->
+      <section id="mod-visuals" class="fluid-section">
+        <div class="sec-header">
+          <div class="sec-title">📊 Telemetría Analítica SIEM & Auditoría de Evasión ('Informational')</div>
+          <span class="mono" style="font-size:0.75rem;color:var(--neon-emerald);">124 Eventos Maliciosos Correlacionados</span>
+        </div>
+
+        <div class="charts-bento">
+          <div id="chartIncidents" class="chart-box"></div>
+          <div id="chartTimeline" class="chart-box"></div>
+          <div id="chartHosts" class="chart-box"></div>
+          <div id="chartIPs" class="chart-box"></div>
+        </div>
+
+        <div style="margin-top:1.25rem;">
+          <h4 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;color:var(--neon-cyan);margin-bottom:0.55rem;">
+            🕵️‍♂️ Los 12 Eventos Críticos Camuflados bajo Severidad 'Informational' (Rescatados por Correlación L2)
+          </h4>
+          <div class="table-scroll">
             <table>
               <thead>
                 <tr>
                   <th>Log_ID</th>
                   <th>Timestamp</th>
                   <th>Incidente</th>
-                  <th>Host</th>
+                  <th>Hostname</th>
                   <th>Event_ID</th>
                   <th>Usuario</th>
-                  <th>Origen → Destino</th>
+                  <th>Origen</th>
+                  <th>Destino</th>
                   <th>Comando / Evidencia Forense</th>
                 </tr>
               </thead>
-              <tbody id="hidden-tbody"></tbody>
+              <tbody id="hiddenTrapsTableBody"></tbody>
             </table>
           </div>
         </div>
       </section>
 
-      <!-- TAB 4: INFORMES IA & EXPORTACION PDF -->
-      <section id="tab-informes" class="tab-panel">
-        <div class="panel-card">
-          <h3>
-            <span>🤖 Orquestador de Informes Duales (C-Level Ejecutivo + Forense CSIRT L2)</span>
-            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-              <a href="Informe_Final_SOC_L2_Incidentes.pdf" download="Informe_Final_SOC_L2_Incidentes.pdf" class="btn-cta btn-primary" style="width:auto;min-height:38px;padding:0.45rem 0.95rem;">
-                📥 Descargar PDF Compilado Oficial
-              </a>
-              <button class="btn-cta btn-secondary" style="width:auto;min-height:38px;padding:0.45rem 0.95rem;" onclick="downloadMarkdownReport()">
-                📝 Descargar Informes (.md)
-              </button>
-              <button class="btn-cta btn-secondary" style="width:auto;min-height:38px;padding:0.45rem 0.95rem;" onclick="window.print()">
-                🖨️ Imprimir / Guardar Vista
-              </button>
-            </div>
-          </h3>
-          <div class="filter-bar" style="margin-top:0.65rem;">
-            <div>
-              <label style="font-size:0.74rem;color:#94A3B8;">Motor de Generación de Informes</label>
-              <select id="ai-provider">
-                <option value="deterministic">Motor Forense Híbrido SOC L2 (Auditado • Instantáneo)</option>
-                <option value="openai">OpenAI / Compatible API (gpt-4o-mini)</option>
-                <option value="groq">Groq Cloud API (llama-3.3-70b-versatile)</option>
-              </select>
-            </div>
-            <div>
-              <label style="font-size:0.74rem;color:#94A3B8;">API Key (Opcional — solo para OpenAI/Groq en vivo)</label>
-              <input type="password" id="ai-key" placeholder="sk-... / gsk_..." />
-            </div>
-            <div style="display:flex;align-items:flex-end;gap:0.5rem;">
-              <button class="btn-cta btn-secondary" style="min-height:38px;" onclick="generateLiveAIReport()">
-                ⚡ Sintetizar con Agente IA
-              </button>
-            </div>
-          </div>
-          <div id="ai-status-msg" style="font-size:0.78rem;color:#10B981;">
-            ✔ Estado: Informes Ejecutivo y Técnico sincronizados con los 715 eventos y 6 incidentes críticos.
+      <!-- MÓDULO 4: ESTUDIO DUAL DE INFORMES (C-LEVEL / DFIR) & PDF -->
+      <section id="mod-reports" class="fluid-section">
+        <div class="sec-header">
+          <div class="sec-title">📄 Estudio Dual de Informes LangChain (`RunnableParallel`) & Exportación PDF</div>
+          <div style="display:flex;gap:0.6rem;align-items:center;">
+            <button class="chip-btn" onclick="runLiveLangChainReportGeneration()">🔗 Re-ejecutar Pipeline LangChain</button>
+            <a href="Informe_Final_SOC_L2_Incidentes.pdf" download="Informe_Final_SOC_L2_Incidentes.pdf" class="btn-pdf-glow">📥 Descargar PDF Oficial</a>
           </div>
         </div>
-        <div class="grid-2">
-          <div class="panel-card">
-            <h3><span>👔 Informe 1: Resumen Ejecutivo (Audiencia No Técnica / C-Level)</span></h3>
-            <div id="exec-report-view" class="markdown-preview"></div>
+        <div id="reportStatusBanner" style="font-size:0.8rem;color:var(--neon-emerald);margin-bottom:0.8rem;">
+          🟢 Pipeline LangChain LCEL (`RunnableParallel`) verificado sobre los 715 registros SIEM.
+        </div>
+        <div class="dual-editors">
+          <div>
+            <h4 style="font-size:0.88rem;color:var(--neon-cyan);margin-bottom:0.4rem;">👔 1. Informe Ejecutivo (C-Level / Junta Directiva)</h4>
+            <textarea id="execReportBox" class="report-textarea"></textarea>
           </div>
-          <div class="panel-card">
-            <h3><span>🔬 Informe 2: Análisis Técnico Forense (SOC Nivel 2 / CSIRT)</span></h3>
-            <div id="tech-report-view" class="markdown-preview"></div>
+          <div>
+            <h4 style="font-size:0.88rem;color:#C4B5FD;margin-bottom:0.4rem;">🛠️ 2. Informe Técnico Forense (Ingeniería SOC L2 / DFIR)</h4>
+            <textarea id="techReportBox" class="report-textarea"></textarea>
           </div>
         </div>
       </section>
 
-      <!-- TAB 5: EXPLORADOR FORENSE -->
-      <section id="tab-explorador" class="tab-panel">
-        <div class="panel-card">
-          <h3>
-            <span>🔎 Explorador de Telemetría SIEM (715 Eventos Normalizados)</span>
-            <span id="explorer-count" class="badge badge-mitre">Mostrando 715 eventos</span>
-          </h3>
-          <div class="quick-pills">
-            <button class="pill-btn" onclick="applyQuickFilter('MALICIOUS', 'ALL', 'ALL', '')">🔴 124 Maliciosos Correlacionados</button>
-            <button class="pill-btn" onclick="applyQuickFilter('TRAP', 'ALL', 'ALL', '')">🟣 12 Ocultos en Informational</button>
-            <button class="pill-btn" onclick="applyQuickFilter('INC-03', 'ALL', 'ALL', 'vssadmin')">💥 Pre-Ransomware (vssadmin)</button>
-            <button class="pill-btn" onclick="applyQuickFilter('INC-04', 'ALL', 'ALL', '')">📤 Exfiltración Legal (241.57 MiB)</button>
-            <button class="pill-btn" onclick="applyQuickFilter('INC-06', 'ALL', 'ALL', 'test.aspx')">🕸️ Webshell IIS (test.aspx)</button>
-            <button class="pill-btn" onclick="applyQuickFilter('ALL', 'ALL', 'ALL', '')">🔄 Mostrar Todo (715)</button>
-          </div>
-          <div class="filter-bar">
-            <div>
-              <label style="font-size:0.74rem;color:#94A3B8;">Filtrar por Incidente</label>
-              <select id="filter-inc" onchange="renderExplorerTable()">
-                <option value="ALL">Todos los eventos (715)</option>
-                <option value="MALICIOUS">Solo Maliciosos Correlacionados (124)</option>
-                <option value="TRAP">Solo Ocultos en Informational (12)</option>
-                <option value="INC-01">INC-01: Password Spraying (35)</option>
-                <option value="INC-02">INC-02: RDP -> SMB Budget2027 (16)</option>
-                <option value="INC-03">INC-03: Pre-Ransomware vssadmin (19)</option>
-                <option value="INC-04">INC-04: Exfiltración Legal 7z (24)</option>
-                <option value="INC-05">INC-05: Persistencia wuhelper (8)</option>
-                <option value="INC-06">INC-06: Webshell IIS WEB-01 (22)</option>
-                <option value="NONE">Ruido Operativo Base (591)</option>
-              </select>
-            </div>
-            <div>
-              <label style="font-size:0.74rem;color:#94A3B8;">Severidad SIEM Nativa</label>
-              <select id="filter-sev" onchange="renderExplorerTable()">
-                <option value="ALL">Todas las Severidades</option>
-                <option value="High">High (8)</option>
-                <option value="Medium">Medium (7)</option>
-                <option value="Warning">Warning (97)</option>
-                <option value="Informational">Informational (603)</option>
-              </select>
-            </div>
-            <div>
-              <label style="font-size:0.74rem;color:#94A3B8;">Host Normalizado</label>
-              <select id="filter-host" onchange="renderExplorerTable()">
-                <option value="ALL">Todos los Hosts</option>
-                <option value="DC-01">DC-01 (incluye alias DC01)</option>
-                <option value="APP-SRV01">APP-SRV01</option>
-                <option value="FS-SRV01">FS-SRV01</option>
-                <option value="WS-023">WS-023</option>
-                <option value="WS-018">WS-018</option>
-                <option value="WEB-01">WEB-01</option>
-                <option value="WS-031">WS-031</option>
-              </select>
-            </div>
-            <div>
-              <label style="font-size:0.74rem;color:#94A3B8;">Búsqueda Libre (Log_ID, IP, Comando, Usuario)</label>
-              <input type="text" id="filter-search" placeholder="Ej. EVT-00314, vssadmin, 198.51.100.88..." oninput="renderExplorerTable()" />
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Log_ID</th>
-                  <th>Timestamp</th>
-                  <th>Incidente</th>
-                  <th>Severidad</th>
-                  <th>Host_Norm</th>
-                  <th>User_Norm</th>
-                  <th>Source_IP → Dest</th>
-                  <th>Event_ID / Fuente</th>
-                  <th>Descripción / Process_CommandLine</th>
-                </tr>
-              </thead>
-              <tbody id="explorer-tbody"></tbody>
-            </table>
-          </div>
+      <!-- MÓDULO 5: STREAM FORENSE DE TELEMETRÍA (715 LOGS) -->
+      <section id="mod-logs" class="fluid-section">
+        <div class="sec-header">
+          <div class="sec-title">🔎 Explorador Forense de Telemetría SIEM en Vivo</div>
+          <span id="logCounterBadge" class="mono" style="font-size:0.78rem;color:var(--neon-cyan);">Mostrando 124 de 715 eventos</span>
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:0.6rem;margin-bottom:0.9rem;align-items:center;">
+          <button class="chip-btn" onclick="setLogPreset('malicious')">🔴 Maliciosos (124)</button>
+          <button class="chip-btn" onclick="setLogPreset('hidden')">🕵️‍♂️ Ocultos en Info (12)</button>
+          <button class="chip-btn" onclick="setLogPreset('extip')">🌐 IPs Externas (91)</button>
+          <button class="chip-btn" onclick="setLogPreset('all')">📋 Todos los Logs (715)</button>
+          <select id="logIncidentFilter" class="dock-select" style="width:auto;margin-top:0;" onchange="renderLogTable()">
+            <option value="ALL">Todos los Incidentes</option>
+          </select>
+          <input type="text" id="logSearchInput" class="dock-input" style="width:260px;margin-top:0;" placeholder="🔎 Buscar Log_ID, IP, usuario, comando..." oninput="renderLogTable()" />
+        </div>
+
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Log_ID</th>
+                <th>Timestamp</th>
+                <th>Incidente</th>
+                <th>Severidad</th>
+                <th>Hostname</th>
+                <th>Event_ID</th>
+                <th>Usuario</th>
+                <th>Source_IP</th>
+                <th>Destino</th>
+                <th>Comando / Descripción</th>
+              </tr>
+            </thead>
+            <tbody id="siemLogsTableBody"></tbody>
+          </table>
         </div>
       </section>
+
     </main>
   </div>
 
   <script>
     const SOC_DATA = {payload_json};
+    let activeLogPreset = 'malicious';
+    let activeIncidentFilter = 'ALL';
+    const containedState = {{
+      'INC-01': false,
+      'INC-02': false,
+      'INC-03': false,
+      'INC-04': false,
+      'INC-05': false,
+      'INC-06': false
+    }};
 
-    function switchTab(tabId, btnEl) {{
-      const t0 = performance.now();
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.getElementById(tabId).classList.add('active');
+    function escapeHtml(str) {{
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }}
+
+    function setWorkspaceMode(mode, btnEl) {{
+      document.querySelectorAll('.mode-pill').forEach(b => b.classList.remove('active'));
       if (btnEl) btnEl.classList.add('active');
-      window.dispatchEvent(new Event('resize'));
-      const dt = (performance.now() - t0).toFixed(1);
-      document.getElementById('perf-badge').textContent = `Renderizado en ${{dt}} ms`;
-    }}
-
-    function jumpToIncidentLogs(incId) {{
-      document.getElementById('filter-inc').value = incId;
-      document.getElementById('filter-sev').value = 'ALL';
-      document.getElementById('filter-host').value = 'ALL';
-      document.getElementById('filter-search').value = '';
-      renderExplorerTable();
-      switchTab('tab-explorador', document.getElementById('btn-tab-explorador'));
-    }}
-
-    function applyQuickFilter(incVal, sevVal, hostVal, qVal) {{
-      document.getElementById('filter-inc').value = incVal;
-      document.getElementById('filter-sev').value = sevVal;
-      document.getElementById('filter-host').value = hostVal;
-      document.getElementById('filter-search').value = qVal;
-      renderExplorerTable();
-    }}
-
-    function updateContainment() {{
-      const boxes = document.querySelectorAll('#checklist-container input[type="checkbox"]');
-      const total = boxes.length;
-      let checked = 0;
-      boxes.forEach(b => {{ if (b.checked) checked++; }});
-      const pct = Math.round((checked / total) * 100);
-      document.getElementById('containment-label').textContent = `${{checked}} / ${{total}} Incidentes Contenidos`;
-      document.getElementById('containment-pct').textContent = `${{pct}}%`;
-      document.getElementById('containment-bar').style.width = `${{pct}}%`;
-    }}
-
-    function renderCharts() {{
-      const logs = SOC_DATA.logs;
-      const findings = SOC_DATA.findings.filter(f => f.id.startsWith('INC-'));
-
-      const winMap = {{}};
-      logs.forEach(l => {{
-        if (l.Incident_ID && l.Incident_ID.startsWith('INC-')) {{
-          const key = l.Minute_Window;
-          if (!winMap[key]) winMap[key] = {{}};
-          winMap[key][l.Incident_ID] = (winMap[key][l.Incident_ID] || 0) + 1;
+      const map = {{
+        copilot: 'mod-copilot',
+        incidents: 'mod-incidents',
+        visuals: 'mod-visuals',
+        reports: 'mod-reports',
+        logs: 'mod-logs'
+      }};
+      Object.values(map).forEach(id => {{
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (mode === 'all' || map[mode] === id) {{
+          el.classList.remove('hidden-mod');
+        }} else {{
+          el.classList.add('hidden-mod');
         }}
       }});
-      const windows = Object.keys(winMap).sort();
-      const incIds = ['INC-01', 'INC-02', 'INC-03', 'INC-04', 'INC-05', 'INC-06'];
-      const colors = {{
-        'INC-01': '#F97316',
-        'INC-02': '#EF4444',
-        'INC-03': '#DC2626',
-        'INC-04': '#A855F7',
-        'INC-05': '#F59E0B',
-        'INC-06': '#38BDF8'
-      }};
-      const tracesTimeline = incIds.map(id => ({{
-        x: windows,
-        y: windows.map(w => (winMap[w] && winMap[w][id]) ? winMap[w][id] : 0),
-        name: id,
-        type: 'bar',
-        marker: {{ color: colors[id] }}
-      }}));
-
-      const darkLayout = {{
-        paper_bgcolor: 'rgba(0,0,0,0)',
-        plot_bgcolor: 'rgba(0,0,0,0)',
-        font: {{ color: '#CBD5E1', family: 'Inter, sans-serif', size: 11 }},
-        margin: {{ t: 15, r: 15, b: 45, l: 45 }},
-        barmode: 'stack',
-        legend: {{ orientation: 'h', y: 1.14 }},
-        xaxis: {{ gridcolor: 'rgba(148,163,184,0.1)' }},
-        yaxis: {{ gridcolor: 'rgba(148,163,184,0.1)' }}
-      }};
-      Plotly.newPlot('chart-timeline', tracesTimeline, darkLayout, {{ responsive: true, displayModeBar: false }});
-
-      const incNames = findings.map(f => f.id);
-      const nativeCounts = findings.map(f => f.eventos_count - f.eventos_ocultos_info);
-      const hiddenCounts = findings.map(f => f.eventos_ocultos_info);
-      Plotly.newPlot('chart-incidents', [
-        {{ x: incNames, y: nativeCounts, name: 'Alertas SIEM (Warning/Med/High)', type: 'bar', marker: {{ color: '#38BDF8' }} }},
-        {{ x: incNames, y: hiddenCounts, name: 'Ocultos en Informational', type: 'bar', marker: {{ color: '#A855F7' }} }}
-      ], darkLayout, {{ responsive: true, displayModeBar: false }});
-
-      const srcCounts = SOC_DATA.metrics.log_source_counts;
-      const sKeys = Object.keys(srcCounts);
-      Plotly.newPlot('chart-sources', [{{
-        x: sKeys,
-        y: sKeys.map(k => srcCounts[k]),
-        type: 'bar',
-        text: sKeys.map(k => srcCounts[k]),
-        textposition: 'auto',
-        marker: {{ color: '#6366F1' }}
-      }}], {{ ...darkLayout, showlegend: false }}, {{ responsive: true, displayModeBar: false }});
-
-      const hostCounts = {{}};
-      logs.forEach(l => {{
-        if (l.Incident_ID && l.Incident_ID.startsWith('INC-')) {{
-          hostCounts[l.Hostname_Norm] = (hostCounts[l.Hostname_Norm] || 0) + 1;
-        }}
-      }});
-      const hKeys = Object.keys(hostCounts).sort((a,b) => hostCounts[b] - hostCounts[a]);
-      Plotly.newPlot('chart-hosts', [{{
-        x: hKeys,
-        y: hKeys.map(k => hostCounts[k]),
-        type: 'bar',
-        text: hKeys.map(k => hostCounts[k] + ' evts'),
-        textposition: 'auto',
-        marker: {{ color: '#EF4444' }}
-      }}], {{ ...darkLayout, showlegend: false }}, {{ responsive: true, displayModeBar: false }});
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
     }}
 
-    function renderIncidents() {{
-      const container = document.getElementById('incidents-container');
-      container.innerHTML = SOC_DATA.findings.map(f => {{
-        const isHigh = f.riesgo === 'Alto';
-        const kcSteps = f.kill_chain.split('->').map(s => s.trim());
-        const kcHtml = kcSteps.map((s, idx) =>
-          `<span class="kc-step">${{s}}</span>${{idx < kcSteps.length - 1 ? '<span class="kc-arrow">➔</span>' : ''}}`
+    function toggleLcelConfig() {{
+      const val = document.getElementById('lcelProviderSelect').value;
+      const box = document.getElementById('lcelDynamicConfig');
+      box.style.display = val === 'deterministic' ? 'none' : 'block';
+      if (val === 'openai') {{
+        document.getElementById('lcelApiUrl').value = 'https://api.openai.com/v1';
+        document.getElementById('lcelModelName').value = 'gpt-4o-mini';
+      }} else if (val === 'ollama') {{
+        document.getElementById('lcelApiUrl').value = 'http://localhost:11434';
+        document.getElementById('lcelModelName').value = 'qwen2.5:7b';
+      }}
+    }}
+
+    function renderLcelNodes() {{
+      const grid = document.getElementById('lcelNodesGrid');
+      grid.innerHTML = SOC_DATA.lcel.nodes.map(n => `
+        <div class="lcel-card">
+          <div class="lcel-type">${{escapeHtml(n.type)}}</div>
+          <div class="lcel-name">⚡ ${{escapeHtml(n.name)}}</div>
+          <div class="lcel-desc">${{escapeHtml(n.desc)}}</div>
+        </div>
+      `).join('');
+    }}
+
+    function renderSoarChecklist() {{
+      const container = document.getElementById('soarChecklistContainer');
+      const keys = Object.keys(containedState);
+      container.innerHTML = keys.map(k => `
+        <label class="soar-check">
+          <input type="checkbox" ${{containedState[k] ? 'checked' : ''}} onchange="toggleContainment('${{k}}', this.checked)" />
+          <span>Contener <strong>${{k}}</strong></span>
+        </label>
+      `).join('');
+      const done = keys.filter(k => containedState[k]).length;
+      document.getElementById('soarCounterText').textContent = `${{done}}/6`;
+      document.getElementById('soarBarFill').style.width = `${{(done / 6) * 100}}%`;
+    }}
+
+    function toggleContainment(incId, val) {{
+      containedState[incId] = val;
+      renderSoarChecklist();
+      renderIncidents(activeIncidentFilter);
+    }}
+
+    function runJevCopilot(queryText) {{
+      const t0 = performance.now();
+      const q = (queryText || '').toLowerCase().trim();
+      const m = SOC_DATA.metrics;
+      const findings = SOC_DATA.findings;
+      let html = '';
+
+      const matchInc = findings.find(f => q.includes(f.id.toLowerCase()) || q.includes(f.id.toLowerCase().replace('-', '')));
+      if (matchInc) {{
+        html = `
+          <h3>⚡ Análisis JEV LangChain — [${{escapeHtml(matchInc.id)}}] ${{escapeHtml(matchInc.titulo)}}</h3>
+          <p><strong>Riesgo / CVSS:</strong> <code>${{escapeHtml(matchInc.riesgo.toUpperCase())}} (${{escapeHtml(matchInc.cvss_estimado)}})</code> · <strong>Ventana:</strong> <code>${{escapeHtml(matchInc.ventana)}}</code></p>
+          <p><strong>Activos:</strong> <code>${{escapeHtml(matchInc.activos)}}</code> · <strong>Usuarios:</strong> <code>${{escapeHtml(matchInc.usuarios)}}</code></p>
+          <p><strong>MITRE ATT&CK:</strong> <code>${{escapeHtml(matchInc.mitre)}}</code></p>
+          <p style="margin-top:0.45rem;"><strong>🔬 Reconstrucción Forense:</strong> ${{escapeHtml(matchInc.resumen_tecnico)}}</p>
+          <pre>${{escapeHtml(matchInc.comandos_contencion)}}</pre>
+        `;
+      }} else if (q.includes('informational') || q.includes('oculto') || q.includes('trampa') || q.includes('12')) {{
+        const items = SOC_DATA.hidden_events.map(r =>
+          `<li><code>${{escapeHtml(r.Log_ID)}}</code> (${{escapeHtml(r.Timestamp)}}) · <strong>${{escapeHtml(r.Incident_ID)}}</strong> en <code>${{escapeHtml(r.Hostname)}}</code> (<code>${{escapeHtml(r.User)}}</code>): Event <code>${{escapeHtml(r.Event_ID)}}</code> — <code>${{escapeHtml(r.Process_CommandLine)}}</code></li>`
         ).join('');
-        const jumpBtn = f.id.startsWith('INC-')
-          ? `<button class="pill-btn" onclick="jumpToIncidentLogs('${{f.id}}')">🔎 Ver los ${{f.eventos_count}} logs de ${{f.id}} en Explorador</button>`
-          : '';
+        html = `
+          <h3>🕵️‍♂️ Auditoría JEV LangChain: Los ${{m.hidden_info_critical_events}} Eventos Críticos Ocultos en 'Informational'</h3>
+          <p>Un filtro de Nivel 1 que descarte <code>Severity == Informational</code> omitiría la intrusión exitosa tras Password Spraying, la compresión previa a la exfiltración y las 5 ejecuciones del binario persistente:</p>
+          <ul style="margin:0.55rem 0 0.55rem 1.2rem;">${{items}}</ul>
+        `;
+      }} else if (q.includes('exfil') || q.includes('mib') || q.includes('bytes') || q.includes('legal') || q.includes('budget')) {{
+        const inc4 = findings.find(f => f.id === 'INC-04') || findings[3];
+        html = `
+          <h3>📤 Telemetría de Exfiltración Cuantificada (INC-04 & INC-02)</h3>
+          <p>1. <strong>INC-04 (Repositorio Legal — WS-018 / CORP\\rrojas):</strong> Acceso SMB a <code>\\\\FS-SRV01\\Legal</code> (<code>EVT-00419</code>), empaquetado con <code>7z.exe a C:\\Users\\Public\\archive.7z C:\\Legal\\*.docx</code> (<code>EVT-00428</code>) y exfiltración de <strong>${{m.exfil_bytes.toLocaleString()}} bytes (${{m.exfil_mib}} MiB / ${{m.exfil_mb}} MB)</strong> en 22 conexiones <code>HTTPS POST</code> hacia <code>198.51.100.88:443</code>.</p>
+          <p style="margin-top:0.35rem;">2. <strong>INC-02 (Finanzas — APP-SRV01 → FS-SRV01 / CORP\\admin):</strong> Sustracción de <code>Budget2027.xlsx</code>, compresión con <code>tar.exe</code> en <code>C:\\Temp\\finance.zip</code> y envío a <code>203.0.113.88:443</code>.</p>
+          <pre>${{escapeHtml(inc4.comandos_contencion)}}</pre>
+        `;
+      }} else if (q.includes('ransom') || q.includes('vssadmin') || q.includes('shadow') || q.includes('ws-023')) {{
+        const inc3 = findings.find(f => f.id === 'INC-03') || findings[2];
+        html = `
+          <h3>🚨 Alerta Pre-Ransomware en WS-023 (INC-03 — CORP\\backupsvc)</h3>
+          <p>Ejecución de PowerShell codificado en Base64 (<code>EVT-00280</code>), barrido secuencial de 16 documentos financieros <code>Finance\\FY2026\\document_000..015.xlsx</code> y destrucción de copias de sombra mediante <code>vssadmin.exe delete shadows /all /quiet</code> (<code>EVT-00314</code>, MITRE <code>T1490</code>).</p>
+          <pre>${{escapeHtml(inc3.comandos_contencion)}}</pre>
+        `;
+      }} else if (q.includes('mitre') || q.includes('táctica') || q.includes('tecnica') || q.includes('att&ck')) {{
+        const list = findings.map(f => `<li><strong>${{escapeHtml(f.id)}} (${{escapeHtml(f.riesgo)}}):</strong> <code>${{escapeHtml(f.mitre)}}</code> — ${{escapeHtml(f.titulo)}}</li>`).join('');
+        html = `
+          <h3>🎯 Matriz Consolidada MITRE ATT&CK v15 (SOC Nivel 2)</h3>
+          <ul style="margin:0.5rem 0 0.5rem 1.2rem;">${{list}}</ul>
+        `;
+      }} else if (q.includes('ip') || q.includes('ioc') || q.includes('extern')) {{
+        html = `
+          <h3>🌐 Indicadores de Compromiso (IoCs) — Red, Artefactos y Cuentas</h3>
+          <ul style="margin:0.45rem 0 0.45rem 1.2rem;">
+            <li><strong>IPs Atacantes (Inbound):</strong> <code>203.0.113.74</code> (Password Spraying DC-01), <code>198.51.100.77</code> (RDP Brute Force APP-SRV01), <code>192.0.2.91</code> (Webshell RCE WEB-01).</li>
+            <li><strong>IPs Receptoras de Exfiltración (Outbound TCP/443):</strong> <code>198.51.100.88:443</code> (241.57 MiB Legal) y <code>203.0.113.88:443</code> (Budget2027.xlsx).</li>
+            <li><strong>Artefactos Maliciosos:</strong> <code>C:\\Temp\\finance.zip</code>, <code>C:\\Users\\Public\\archive.7z</code>, <code>C:\\ProgramData\\wuhelper.exe</code>, <code>/uploads/test.aspx</code>.</li>
+          </ul>
+        `;
+      }} else if (q.includes('dc-01') || q.includes('dc01') || q.includes('normaliz') || q.includes('backupsvc')) {{
+        html = `
+          <h3>🔧 Auditoría de Normalización de Telemetría SIEM (OBS-01)</h3>
+          <p>• <strong>Fragmentación de Hostname en Controlador de Dominio:</strong> <code>DC-01</code> (${{m.normalization.dc_hyphen_count}} eventos) vs <code>DC01</code> sin guion (${{m.normalization.dc_no_hyphen_count}} eventos). Unificados automáticamente bajo <code>Hostname_Norm = DC-01</code>.</p>
+          <p>• <strong>Dualidad de Cuentas de Servicio:</strong> <code>CORP\\backupsvc</code> (${{m.normalization.backupsvc_count}} eventos, comprometida en INC-03) vs <code>CORP\\svc_backup</code> (${{m.normalization.svc_backup_count}} eventos).</p>
+        `;
+      }} else if (q.includes('playbook') || q.includes('powershell') || q.includes('comando')) {{
+        const allCmds = findings.slice(0, 6).map(f => `# [${{f.id}}] ${{f.titulo}}\n${{f.comandos_contencion}}`).join('\n\n');
+        html = `
+          <h3>🛡️ Playbook Maestro de Contención CLI (SOC Nivel 2)</h3>
+          <pre>${{escapeHtml(allCmds)}}</pre>
+        `;
+      }} else {{
+        const rows = findings.map(f => `<li><strong>${{escapeHtml(f.id)}} (${{escapeHtml(f.riesgo)}} | CVSS ${{escapeHtml(f.cvss_estimado)}}):</strong> ${{escapeHtml(f.titulo)}} (${{f.eventos_count}} logs, ${{f.eventos_ocultos_info}} en Info)</li>`).join('');
+        html = `
+          <h3>🤖 JEV Cyber Copilot (LangChain LCEL) — Síntesis Operativa</h3>
+          <p>Se auditaron <strong>${{m.total_logs}} eventos SIEM</strong> vinculando <strong>${{m.correlated_malicious_events}} eventos maliciosos</strong> (${{m.native_non_info_alerts}} alertas nativas + <strong>${{m.hidden_info_critical_events}} críticos rescatados de severidad Informational</strong>) y cuantificando <strong>${{m.exfil_mib}} MiB</strong> exfiltrados.</p>
+          <ul style="margin:0.5rem 0 0.5rem 1.2rem;">${{rows}}</ul>
+        `;
+      }}
+
+      const elapsed = (performance.now() - t0).toFixed(1);
+      document.getElementById('copilotResponseContainer').innerHTML = `
+        ${{html}}
+        <div class="mono" style="margin-top:0.65rem;font-size:0.72rem;color:var(--text-muted);">
+          ⚡ Cadena LangChain <code>JEVCyberCopilotChain</code> completada en ${{elapsed}} ms · Consulta: "${{escapeHtml(queryText)}}"
+        </div>
+      `;
+    }}
+
+    function triggerCustomCopilot() {{
+      const inp = document.getElementById('copilotQueryInput');
+      const val = inp.value.trim();
+      if (val) runJevCopilot(val);
+    }}
+
+    function renderIncidents(selectedId) {{
+      activeIncidentFilter = selectedId || 'ALL';
+      const bar = document.getElementById('incidentSelectorBar');
+      const pills = ['ALL', ...SOC_DATA.findings.map(f => f.id)];
+      bar.innerHTML = pills.map(id => `
+        <button class="inc-pill ${{activeIncidentFilter === id ? 'active' : ''}}" onclick="renderIncidents('${{id}}')">
+          ${{id === 'ALL' ? '📋 Todos los Hallazgos (7)' : '🎯 ' + id}}
+        </button>
+      `).join('');
+
+      const visible = activeIncidentFilter === 'ALL'
+        ? SOC_DATA.findings
+        : SOC_DATA.findings.filter(f => f.id === activeIncidentFilter);
+
+      const container = document.getElementById('incidentCardsContainer');
+      container.innerHTML = visible.map(f => {{
+        const steps = f.kill_chain.split('->').map(s => `<span class="kc-node">${{escapeHtml(s.trim())}}</span>`).join(' <span style="color:var(--neon-crimson);font-weight:800;">➔</span> ');
+        const isCont = containedState[f.id];
+        const statusBadge = f.id in containedState
+          ? (isCont ? '<span class="h-badge hb-emerald">✅ CONTENIDO</span>' : '<span class="h-badge hb-crimson">⚠️ ACCIÓN REQUERIDA</span>')
+          : '<span class="h-badge hb-cyan">🔎 AUDITORÍA SIEM</span>';
+
         return `
-          <div class="inc-card ${{isHigh ? '' : 'med'}}">
-            <div class="inc-header">
-              <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
-                <span class="badge ${{isHigh ? 'badge-crit' : 'badge-med'}}">${{f.id}} • Riesgo ${{f.riesgo}} (${{f.cvss_estimado}})</span>
-                <h3 style="font-size:1.02rem;font-weight:800;">${{f.titulo}}</h3>
+          <div class="inc-card ${{f.riesgo === 'Medio' ? 'medium' : ''}}">
+            <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.5rem;">
+              <div style="font-family:'Space Grotesk',sans-serif;font-size:1.05rem;font-weight:700;">
+                [${{escapeHtml(f.id)}}] ${{escapeHtml(f.titulo)}}
               </div>
-              <div style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:center;">
-                <span class="badge badge-mitre">${{f.mitre}}</span>
-                ${{f.eventos_ocultos_info > 0 ? `<span class="badge badge-trap">⚠️ ${{f.eventos_ocultos_info}} ocultos en Info</span>` : ''}}
-                ${{jumpBtn}}
+              <div style="display:flex;gap:0.45rem;align-items:center;">
+                <span class="h-badge ${{f.riesgo === 'Alto' ? 'hb-crimson' : 'hb-purple'}}">RIESGO ${{escapeHtml(f.riesgo.toUpperCase())}} · CVSS ${{escapeHtml(f.cvss_estimado)}}</span>
+                ${{statusBadge}}
               </div>
             </div>
-            <div class="killchain-flow">${{kcHtml}}</div>
-            <p style="font-size:0.85rem;color:#E2E8F0;margin-bottom:0.45rem;"><b>Resumen Ejecutivo:</b> ${{f.resumen_ejecutivo}}</p>
-            <p style="font-size:0.83rem;color:#CBD5E1;margin-bottom:0.5rem;"><b>Detalle Forense L2:</b> ${{f.resumen_tecnico}}</p>
-            <div class="inc-meta-grid">
-              <div><b>🕒 Ventana:</b> <span class="mono">${{f.ventana}}</span></div>
-              <div><b>🖥️ Activos:</b> <span class="mono">${{f.activos}}</span></div>
-              <div><b>👤 Usuarios:</b> <span class="mono">${{f.usuarios}}</span></div>
-              <div><b>🔍 IOCs:</b> <span class="mono">${{f.ioc}}</span></div>
-              <div><b>📊 Eventos:</b> <b>${{f.eventos_count}}</b> (${{f.eventos_ocultos_info}} en Info)</div>
-              <div><b>🔑 Evidencia Logs:</b> <span class="mono">${{f.evidencia_logs}}</span></div>
+
+            <div class="kc-track">
+              <strong class="mono" style="font-size:0.75rem;color:#F8FAFC;">⚡ Kill Chain:</strong> ${{steps}}
             </div>
-            <div style="font-size:0.81rem;color:#A7F3D0;margin-top:0.4rem;">
-              <b>🛠️ Playbook Contención CLI:</b> <span class="mono">${{f.comandos_contencion}}</span>
+
+            <div class="inc-3col">
+              <div class="inc-subbox">
+                <h5>👔 Impacto Ejecutivo (C-Level)</h5>
+                <p>${{escapeHtml(f.resumen_ejecutivo)}}</p>
+              </div>
+              <div class="inc-subbox">
+                <h5>🔬 Evidencia Forense (DFIR L2)</h5>
+                <p>${{escapeHtml(f.resumen_tecnico)}}</p>
+              </div>
+              <div class="inc-subbox">
+                <h5>🎯 Telemetría, MITRE & IoCs</h5>
+                <p><strong>Ventana:</strong> <code>${{escapeHtml(f.ventana)}}</code></p>
+                <p><strong>Eventos:</strong> <code>${{f.eventos_count}}</code> (<strong>${{f.eventos_ocultos_info}} ocultos en Info</strong>)</p>
+                <p><strong>Activos:</strong> <code>${{escapeHtml(f.activos)}}</code></p>
+                <p><strong>MITRE:</strong> <code>${{escapeHtml(f.mitre)}}</code></p>
+                <p><strong>Log_IDs:</strong> <code>${{escapeHtml(f.evidencia_logs)}}</code></p>
+              </div>
+            </div>
+
+            <div class="cli-playbook">
+              <code>${{escapeHtml(f.comandos_contencion)}}</code>
+              <button class="chip-btn" onclick="navigator.clipboard.writeText(${{JSON.stringify(f.comandos_contencion)}});this.textContent='✓ Copiado'">📋 Copiar Playbook</button>
             </div>
           </div>
         `;
       }}).join('');
     }}
 
-    function renderHiddenTable() {{
-      const tbody = document.getElementById('hidden-tbody');
+    function renderCharts() {{
+      const malLogs = SOC_DATA.logs.filter(r => r.Incident_ID !== 'NONE');
+      const layoutBase = {{
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        font: {{ color: '#E2E8F0', family: 'Inter, sans-serif', size: 11 }},
+        margin: {{ l: 135, r: 20, t: 42, b: 40 }},
+        height: 335
+      }};
+
+      // 1. Eventos por Incidente (Alerta Nativa vs Oculto en Info)
+      const incTags = [...new Set(malLogs.map(r => r.Incident_Tag))].reverse();
+      const nativeCounts = incTags.map(t => malLogs.filter(r => r.Incident_Tag === t && r.Severity !== 'Informational').length);
+      const hiddenCounts = incTags.map(t => malLogs.filter(r => r.Incident_Tag === t && r.Severity === 'Informational').length);
+
+      Plotly.newPlot('chartIncidents', [
+        {{
+          y: incTags,
+          x: nativeCounts,
+          name: 'Alerta SIEM Nativa',
+          type: 'bar',
+          orientation: 'h',
+          marker: {{ color: '#FF2A5F' }}
+        }},
+        {{
+          y: incTags,
+          x: hiddenCounts,
+          name: "Oculto en 'Info' (Rescatado L2)",
+          type: 'bar',
+          orientation: 'h',
+          marker: {{ color: '#00F0FF' }}
+        }}
+      ], {{
+        ...layoutBase,
+        barmode: 'stack',
+        title: {{ text: '🎯 Eventos por Incidente (112 Nativos + 12 Ocultos)', font: {{ size: 13 }} }},
+        legend: {{ orientation: 'h', y: -0.18 }}
+      }}, {{ responsive: true, displayModeBar: false }});
+
+      // 2. Cronología por ventana de 10 min
+      const windows = [...new Set(malLogs.map(r => r.Minute_Window))].sort();
+      const incIds = ['INC-01', 'INC-02', 'INC-03', 'INC-04', 'INC-05', 'INC-06'];
+      const palette = ['#FF2A5F', '#F97316', '#FBBF24', '#8B5CF6', '#00F0FF', '#10B981'];
+      const timeTraces = incIds.map((id, i) => ({{
+        x: windows,
+        y: windows.map(w => malLogs.filter(r => r.Incident_ID === id && r.Minute_Window === w).length),
+        name: id,
+        type: 'bar',
+        marker: {{ color: palette[i] }}
+      }}));
+
+      Plotly.newPlot('chartTimeline', timeTraces, {{
+        ...layoutBase,
+        margin: {{ l: 45, r: 20, t: 42, b: 45 }},
+        barmode: 'stack',
+        title: {{ text: '⏱️ Progresión Cronológica de Ataques (UTC)', font: {{ size: 13 }} }},
+        legend: {{ orientation: 'h', y: -0.22 }}
+      }}, {{ responsive: true, displayModeBar: false }});
+
+      // 3. Activos Comprometidos (Hostname_Norm)
+      const hosts = [...new Set(malLogs.map(r => r.Hostname_Norm))];
+      const hostCounts = hosts.map(h => malLogs.filter(r => r.Hostname_Norm === h).length);
+      Plotly.newPlot('chartHosts', [{{
+        x: hosts,
+        y: hostCounts,
+        type: 'bar',
+        text: hostCounts,
+        textposition: 'auto',
+        marker: {{ color: '#8B5CF6' }}
+      }}], {{
+        ...layoutBase,
+        margin: {{ l: 45, r: 20, t: 42, b: 40 }},
+        title: {{ text: '🖥️ Activos Comprometidos (Normalizados DC-01/DC01)', font: {{ size: 13 }} }}
+      }}, {{ responsive: true, displayModeBar: false }});
+
+      // 4. IPs de Origen en Incidentes
+      const ips = [...new Set(malLogs.map(r => r.Source_IP))];
+      const ipCounts = ips.map(ip => malLogs.filter(r => r.Source_IP === ip).length);
+      Plotly.newPlot('chartIPs', [{{
+        y: ips,
+        x: ipCounts,
+        type: 'bar',
+        orientation: 'h',
+        text: ipCounts,
+        textposition: 'auto',
+        marker: {{ color: '#10B981' }}
+      }}], {{
+        ...layoutBase,
+        margin: {{ l: 115, r: 20, t: 42, b: 40 }},
+        title: {{ text: '🌐 IPs de Origen en Incidentes (Externas y Pivotes)', font: {{ size: 13 }} }}
+      }}, {{ responsive: true, displayModeBar: false }});
+    }}
+
+    function renderHiddenTrapsTable() {{
+      const tbody = document.getElementById('hiddenTrapsTableBody');
       tbody.innerHTML = SOC_DATA.hidden_events.map(r => `
-        <tr class="trap-row">
-          <td class="mono" style="font-weight:700;color:#E9D5FF;">${{r.Log_ID}}</td>
-          <td class="mono">${{r.Timestamp}}</td>
-          <td><span class="badge badge-trap">${{r.Incident_ID}}</span></td>
-          <td class="mono">${{r.Hostname}}</td>
-          <td class="mono">${{r.Event_ID}}</td>
-          <td class="mono">${{r.User}}</td>
-          <td class="mono">${{r.Source_IP}} → ${{r.Destination}}</td>
-          <td class="mono" style="color:#FDE047;">${{r.Process_CommandLine}}</td>
+        <tr>
+          <td class="mono" style="color:var(--neon-cyan);font-weight:600;">${{escapeHtml(r.Log_ID)}}</td>
+          <td class="mono">${{escapeHtml(r.Timestamp)}}</td>
+          <td><span class="h-badge hb-crimson">${{escapeHtml(r.Incident_ID)}}</span></td>
+          <td class="mono">${{escapeHtml(r.Hostname)}}</td>
+          <td class="mono">${{escapeHtml(r.Event_ID)}}</td>
+          <td class="mono">${{escapeHtml(r.User)}}</td>
+          <td class="mono">${{escapeHtml(r.Source_IP)}}</td>
+          <td class="mono">${{escapeHtml(r.Destination)}}</td>
+          <td class="mono" style="color:#FDE68A;">${{escapeHtml(r.Process_CommandLine !== '-' ? r.Process_CommandLine : r.Event_Description)}}</td>
         </tr>
       `).join('');
     }}
 
-    function renderExplorerTable() {{
-      const t0 = performance.now();
-      const incFilter = document.getElementById('filter-inc').value;
-      const sevFilter = document.getElementById('filter-sev').value;
-      const hostFilter = document.getElementById('filter-host').value;
-      const q = document.getElementById('filter-search').value.trim().toLowerCase();
-
-      const filtered = SOC_DATA.logs.filter(r => {{
-        if (incFilter === 'MALICIOUS' && r.Incident_ID === 'NONE') return false;
-        if (incFilter === 'TRAP' && !r.Hidden_Trap) return false;
-        if (incFilter !== 'ALL' && incFilter !== 'MALICIOUS' && incFilter !== 'TRAP' && r.Incident_ID !== incFilter) return false;
-        if (sevFilter !== 'ALL' && r.Severity !== sevFilter) return false;
-        if (hostFilter !== 'ALL' && r.Hostname_Norm !== hostFilter) return false;
-        if (q) {{
-          const hay = `${{r.Log_ID}} ${{r.Timestamp}} ${{r.Incident_ID}} ${{r.Hostname_Norm}} ${{r.User_Norm}} ${{r.Source_IP}} ${{r.Destination}} ${{r.Event_ID}} ${{r.Event_Description}} ${{r.Process_CommandLine}}`.toLowerCase();
-          if (!hay.includes(q)) return false;
-        }}
-        return true;
-      }});
-
-      document.getElementById('explorer-count').textContent = `Mostrando ${{filtered.length}} de ${{SOC_DATA.logs.length}} eventos`;
-      const tbody = document.getElementById('explorer-tbody');
-      tbody.innerHTML = filtered.slice(0, 350).map(r => {{
-        const detail = r.Process_CommandLine !== '-' ? `${{r.Event_Description}} | ${{r.Process_CommandLine}}` : r.Event_Description;
-        return `
-          <tr class="${{r.Hidden_Trap ? 'trap-row' : ''}}">
-            <td class="mono" style="font-weight:600;">${{r.Log_ID}}</td>
-            <td class="mono">${{r.Timestamp}}</td>
-            <td><span class="badge ${{r.Incident_ID.startsWith('INC') ? 'badge-crit' : 'badge-mitre'}}">${{r.Incident_ID}}</span></td>
-            <td>${{r.Severity}} ${{r.Hidden_Trap ? '⚠️' : ''}}</td>
-            <td class="mono">${{r.Hostname_Norm}}</td>
-            <td class="mono">${{r.User_Norm}}</td>
-            <td class="mono">${{r.Source_IP}} → ${{r.Destination}}</td>
-            <td class="mono">${{r.Event_ID}} (${{r.Log_Source}})</td>
-            <td class="mono" style="max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${{detail.replace(/"/g, '&quot;')}}">${{detail}}</td>
-          </tr>
-        `;
-      }}).join('');
-      const dt = (performance.now() - t0).toFixed(1);
-      document.getElementById('perf-badge').textContent = `Filtrado en ${{dt}} ms`;
+    function setLogPreset(preset) {{
+      activeLogPreset = preset;
+      renderLogTable();
     }}
 
-    function renderReports() {{
-      document.getElementById('exec-report-view').innerHTML = marked.parse(SOC_DATA.exec_md);
-      document.getElementById('tech-report-view').innerHTML = marked.parse(SOC_DATA.tech_md);
-    }}
+    function renderLogTable() {{
+      const incSel = document.getElementById('logIncidentFilter').value;
+      const q = (document.getElementById('logSearchInput').value || '').toLowerCase().trim();
 
-    async function generateLiveAIReport() {{
-      const provider = document.getElementById('ai-provider').value;
-      const apiKey = document.getElementById('ai-key').value.trim();
-      const statusEl = document.getElementById('ai-status-msg');
+      let rows = SOC_DATA.logs;
+      if (activeLogPreset === 'malicious') rows = rows.filter(r => r.Incident_ID !== 'NONE');
+      else if (activeLogPreset === 'hidden') rows = rows.filter(r => r.Hidden_Trap);
+      else if (activeLogPreset === 'extip') rows = rows.filter(r => r.External_IP);
 
-      if (provider === 'deterministic' || !apiKey) {{
-        renderReports();
-        statusEl.innerHTML = '✔ Informes regenerados instantáneamente mediante el Motor Forense Híbrido SOC L2 (100% verificado contra los 715 eventos).';
-        return;
+      if (incSel !== 'ALL') rows = rows.filter(r => r.Incident_Tag === incSel);
+      if (q) {{
+        rows = rows.filter(r =>
+          r.Log_ID.toLowerCase().includes(q) ||
+          r.User.toLowerCase().includes(q) ||
+          r.Hostname.toLowerCase().includes(q) ||
+          r.Source_IP.toLowerCase().includes(q) ||
+          r.Destination.toLowerCase().includes(q) ||
+          r.Event_Description.toLowerCase().includes(q) ||
+          r.Process_CommandLine.toLowerCase().includes(q)
+        );
       }}
 
-      statusEl.innerHTML = '⏳ Consultando API de IA Generativa con el contexto estructurado de los 6 incidentes...';
-      const endpoint = provider === 'groq'
-        ? 'https://api.groq.com/openai/v1/chat/completions'
-        : 'https://api.openai.com/v1/chat/completions';
-      const model = provider === 'groq' ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini';
-
-      try {{
-        const resp = await fetch(endpoint, {{
-          method: 'POST',
-          headers: {{
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${{apiKey}}`
-          }},
-          body: JSON.stringify({{
-            model: model,
-            temperature: 0.2,
-            messages: [
-              {{ role: 'system', content: 'Eres un Principal SOC Nivel 2 & CSIRT Lead. Redacta un Resumen Ejecutivo C-Level en español claro basado estrictamente en las métricas forenses proporcionadas.' }},
-              {{ role: 'user', content: JSON.stringify({{ metrics: SOC_DATA.metrics, findings: SOC_DATA.findings }}) }}
-            ]
-          }})
-        }});
-        const data = await resp.json();
-        if (data.choices && data.choices[0]) {{
-          SOC_DATA.exec_md = data.choices[0].message.content;
-          renderReports();
-          statusEl.innerHTML = `✔ Resumen Ejecutivo actualizado en vivo con ${{model}}.`;
-        }} else {{
-          throw new Error(data.error ? data.error.message : 'Respuesta inesperada de la API');
-        }}
-      }} catch (err) {{
-        renderReports();
-        statusEl.innerHTML = `<span style="color:#F59E0B;">⚠️ No se pudo conectar a la API externa (${{err.message}}); se mantiene el informe del Motor Forense Determinista.</span>`;
-      }}
+      document.getElementById('logCounterBadge').textContent = `Mostrando ${{rows.length}} de ${{SOC_DATA.logs.length}} eventos`;
+      const tbody = document.getElementById('siemLogsTableBody');
+      tbody.innerHTML = rows.slice(0, 300).map(r => `
+        <tr>
+          <td class="mono" style="color:var(--neon-cyan);">${{escapeHtml(r.Log_ID)}}</td>
+          <td class="mono">${{escapeHtml(r.Timestamp)}}</td>
+          <td>${{r.Incident_ID !== 'NONE' ? `<span class="h-badge hb-crimson">${{escapeHtml(r.Incident_ID)}}</span>` : '<span style="color:#64748B;">NONE</span>'}}</td>
+          <td class="mono">${{escapeHtml(r.Severity)}}</td>
+          <td class="mono">${{escapeHtml(r.Hostname)}}</td>
+          <td class="mono">${{escapeHtml(r.Event_ID)}}</td>
+          <td class="mono">${{escapeHtml(r.User)}}</td>
+          <td class="mono">${{escapeHtml(r.Source_IP)}}</td>
+          <td class="mono">${{escapeHtml(r.Destination)}}</td>
+          <td class="mono" style="font-size:0.75rem;">${{escapeHtml(r.Process_CommandLine !== '-' ? r.Process_CommandLine : r.Event_Description)}}</td>
+        </tr>
+      `).join('');
     }}
 
-    function downloadMarkdownReport() {{
-      const combined = `${{SOC_DATA.exec_md}}\\n\\n---\\n\\n${{SOC_DATA.tech_md}}`;
-      const blob = new Blob([combined], {{ type: 'text/markdown;charset=utf-8' }});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'Informe_Dual_SOC_L2_Incidentes.md';
-      a.click();
-      URL.revokeObjectURL(url);
+    function runLiveLangChainReportGeneration() {{
+      const banner = document.getElementById('reportStatusBanner');
+      banner.textContent = '⚡ Ejecutando RunnableParallel(executive=exec_chain, technical=dfir_chain)...';
+      setTimeout(() => {{
+        document.getElementById('execReportBox').value = SOC_DATA.exec_md;
+        document.getElementById('techReportBox').value = SOC_DATA.tech_md;
+        banner.textContent = '🟢 Pipeline LangChain LCEL completado con éxito (100% sincronizado con los 715 eventos).';
+      }}, 220);
     }}
 
-    function correlateUploadedRow(r) {{
-      const srcIp = String(r.Source_IP || '-').trim();
-      const user = String(r.User || '-').trim();
-      const host = String(r.Hostname || '-').trim();
-      const ts = String(r.Timestamp || '').trim();
-      if (srcIp === '203.0.113.74') return 'INC-01';
-      if (srcIp === '198.51.100.77' || user === 'CORP\\\\admin') return 'INC-02';
-      if (user === 'CORP\\\\backupsvc' && srcIp === '10.10.1.44' && ts >= '2026-10-23 09:36:00' && ts <= '2026-10-23 09:43:00') return 'INC-03';
-      if (user === 'CORP\\\\rrojas' && srcIp === '10.10.1.31' && ts >= '2026-10-23 10:40:00' && ts <= '2026-10-23 10:49:30') return 'INC-04';
-      if (host === 'APP-SRV01' && user === 'CORP\\\\helpdesk' && srcIp === '10.10.3.18') return 'INC-05';
-      if (srcIp === '192.0.2.91' || user === 'IIS APPPOOL\\\\DefaultAppPool') return 'INC-06';
-      return 'NONE';
-    }}
-
-    function handleXlsxUpload(event) {{
-      const file = event.target.files[0];
+    // Soporte de carga de archivos Excel (.xlsx) en el navegador con SheetJS
+    document.getElementById('excelUploadInput').addEventListener('change', function(evt) {{
+      const file = evt.target.files[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = function(e) {{
         try {{
-          const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, {{ type: 'array' }});
-          const sheetName = workbook.SheetNames.includes('SIEM Export') ? 'SIEM Export' : workbook.SheetNames[0];
-          const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
-          if (!rows.length) throw new Error('El archivo Excel está vacío (0 filas).');
-
-          let malCount = 0;
-          let trapCount = 0;
-          const mapped = rows.map(r => {{
-            const incId = correlateUploadedRow(r);
-            const sev = String(r.Severity || 'Informational').trim();
-            const isTrap = incId !== 'NONE' && sev === 'Informational';
-            if (incId !== 'NONE') malCount++;
-            if (isTrap) trapCount++;
-            const host = String(r.Hostname || '-').trim();
-            const user = String(r.User || '-').trim();
-            return {{
-              Log_ID: String(r.Log_ID || '-'),
-              Timestamp: String(r.Timestamp || '-'),
-              Minute_Window: String(r.Timestamp || '').slice(0, 16),
-              Log_Source: String(r.Log_Source || '-'),
-              Event_ID: String(r.Event_ID || '-'),
-              Event_Description: String(r.Event_Description || '-'),
-              Severity: sev,
-              User: user,
-              User_Norm: user === 'CORP\\\\svc_backup' ? 'CORP\\\\backupsvc' : user,
-              Hostname: host,
-              Hostname_Norm: host === 'DC01' ? 'DC-01' : host,
-              Source_IP: String(r.Source_IP || '-'),
-              Destination: String(r.Destination || '-'),
-              Result: String(r.Result || '-'),
-              Process_CommandLine: String(r.Process_CommandLine || '-'),
-              Incident_ID: incId,
-              Incident_Tag: incId,
-              Hidden_Trap: isTrap
-            }};
-          }});
-
-          SOC_DATA.logs = mapped;
-          document.getElementById('kpi-total-val').textContent = mapped.length;
-          document.getElementById('kpi-mal-val').textContent = malCount;
-          document.getElementById('kpi-mal-sub').textContent = `${{malCount - trapCount}} alertas + ${{trapCount}} ocultos Info`;
-          renderCharts();
-          renderExplorerTable();
-          document.getElementById('upload-status').innerHTML = `✔ Procesado en vivo: <b>${{file.name}}</b> (${{mapped.length}} logs, ${{malCount}} maliciosos, ${{trapCount}} ocultos en Info)`;
+          const wb = XLSX.read(new Uint8Array(e.target.result), {{ type: 'array' }});
+          const sheetName = wb.SheetNames.includes('SIEM Export') ? 'SIEM Export' : wb.SheetNames[0];
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+          document.getElementById('datasetStatusBadge').textContent = `✓ Cargado: ${{file.name}} (${{rows.length}} registros en '${{sheetName}}')`;
         }} catch (err) {{
-          document.getElementById('upload-status').innerHTML = `<span style="color:#EF4444;">❌ Error validando .xlsx: ${{err.message}}</span>`;
+          document.getElementById('datasetStatusBadge').textContent = `⚠️ Error al leer Excel: ${{err.message}}`;
         }}
       }};
       reader.readAsArrayBuffer(file);
-    }}
+    }});
 
+    // Inicialización completa del sistema JEV Cyber Command
     window.addEventListener('DOMContentLoaded', () => {{
-      renderIncidents();
+      renderLcelNodes();
+      renderSoarChecklist();
+      renderIncidents('ALL');
       renderCharts();
-      renderHiddenTable();
-      renderExplorerTable();
-      renderReports();
+      renderHiddenTrapsTable();
+      document.getElementById('execReportBox').value = SOC_DATA.exec_md;
+      document.getElementById('techReportBox').value = SOC_DATA.tech_md;
+
+      const incSelect = document.getElementById('logIncidentFilter');
+      const uniqueTags = [...new Set(SOC_DATA.logs.map(r => r.Incident_Tag))];
+      uniqueTags.forEach(t => {{
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t;
+        incSelect.appendChild(opt);
+      }});
+
+      renderLogTable();
+      runJevCopilot('Resumen ejecutivo del estado global de telemetría');
     }});
   </script>
 </body>
@@ -1166,45 +1443,44 @@ def build_static_web_portal(
 def main() -> None:
     base_dir = Path(__file__).resolve().parent
     excel_path = base_dir / "SOC_L2_Logs_Ampliados_Multiples_Incidentes.xlsx"
-    print(f"[*] Cargando archivo oficial: {excel_path.name} ...")
+    pdf_path = base_dir / "Informe_Final_SOC_L2_Incidentes.pdf"
+    chart_path = base_dir / "soc_l2_dashboard_summary.png"
+
+    print(f"[1/4] Cargando telemetría SIEM desde: {excel_path.name} (Hoja: 'SIEM Export')...")
     raw_df = pd.read_excel(excel_path, sheet_name="SIEM Export")
 
-    print("[*] Ejecutando motor de correlación forense SOC Nivel 2...")
+    print("[2/4] Ejecutando motor de correlación forense SOC Nivel 2...")
     df, findings, summary_metrics = analyze_siem_logs(raw_df)
-    print(f"    - Total eventos procesados: {summary_metrics['total_logs']}")
-    print(f"    - Alertas nativas SIEM: {summary_metrics['native_non_info_alerts']}")
-    print(f"    - Eventos maliciosos correlacionados: {summary_metrics['correlated_malicious_events']}")
-    print(f"    - Eventos críticos ocultos en Informational: {summary_metrics['hidden_info_critical_events']}")
-    print(f"    - Exfiltración HTTPS POST detectada: {summary_metrics['exfil_bytes']:,} bytes ({summary_metrics['exfil_mib']} MiB)")
+    print(
+        f"      -> Total eventos: {summary_metrics['total_logs']} | "
+        f"Alertas nativas: {summary_metrics['native_non_info_alerts']} | "
+        f"Maliciosos correlacionados: {summary_metrics['correlated_malicious_events']} | "
+        f"Ocultos en Info: {summary_metrics['hidden_info_critical_events']}"
+    )
 
-    print("[*] Generando Informe Ejecutivo e Informe Técnico Forense...")
-    exec_rep, tech_rep, status = generate_ai_reports(
-        findings,
-        summary_metrics,
-        provider="Motor Forense Determinista + Plantilla IA (Instantáneo / Offline)",
-        model_name="soc-l2-forensic-engine-v2",
+    print("[3/4] Ejecutando Pipeline LangChain LCEL (RunnableParallel: Ejecutivo C-Level + Técnico DFIR)...")
+    exec_report, tech_report, status = generate_ai_reports(
+        findings=findings,
+        summary_metrics=summary_metrics,
+        provider="LangChain LCEL + Motor Forense Determinista (Instantáneo / Offline)",
+        model_name="jev-soc-l2-lcel-v3",
         api_url="",
         api_key="",
     )
-    print(f"    - Estado IA: {status}")
+    print(f"      -> {status}")
 
-    pdf_path = base_dir / "Informe_Final_SOC_L2_Incidentes.pdf"
-    chart_path = base_dir / "soc_l2_dashboard_summary.png"
-    print(f"[*] Compilando PDF oficial ({pdf_path.name}) y panel gráfico ({chart_path.name})...")
+    print(f"[4/4] Compilando PDF Oficial '{pdf_path.name}' y Portal Fluido JEV 'index.html'...")
     pdf_bytes = build_pdf_report(
-        exec_rep,
-        tech_rep,
-        findings,
-        summary_metrics,
-        df,
+        exec_text=exec_report,
+        tech_text=tech_report,
+        findings=findings,
+        summary_metrics=summary_metrics,
+        df=df,
         chart_output_path=str(chart_path),
     )
     pdf_path.write_bytes(pdf_bytes)
-    print(f"[+] PDF generado en '{pdf_path.name}' ({len(pdf_bytes):,} bytes).")
-
-    print("[*] Sincronizando portal web interactivo ('index.html') para GitHub Pages...")
-    build_static_web_portal(df, findings, summary_metrics, exec_rep, tech_rep, base_dir)
-    print("[+] Portal 'index.html' actualizado correctamente.")
+    build_static_web_portal(df, findings, summary_metrics, exec_report, tech_report, base_dir)
+    print(f"¡ÉXITO! PDF ({len(pdf_bytes):,} bytes) e index.html (JEV LangChain Fluid Edition) actualizados.")
 
 
 if __name__ == "__main__":

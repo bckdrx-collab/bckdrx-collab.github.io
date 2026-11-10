@@ -190,13 +190,13 @@ def _draw_header_footer(canvas, doc):
     canvas.setFillColor(colors.HexColor("#0F172A"))
     canvas.rect(0, height - 28, width, 28, fill=1, stroke=0)
 
-    # Texto izquierdo y derecho con fuente 8pt y separación garantizada (>72pt libres en el centro)
-    canvas.setFont("Helvetica-Bold", 8.0)
+    # Texto izquierdo y derecho con fuente 7.5pt y amplia separación central (>150pt)
+    canvas.setFont("Helvetica-Bold", 7.5)
     canvas.setFillColor(colors.HexColor("#F8FAFC"))
-    canvas.drawString(36, height - 18, "CENTRO DE OPERACIONES DE SEGURIDAD (SOC NIVEL 2) — INFORME FORENSE")
+    canvas.drawString(36, height - 18, "SOC NIVEL 2 — AUDITORÍA FORENSE & RESPUESTA A INCIDENTES")
 
     canvas.setFillColor(colors.HexColor("#F59E0B"))
-    canvas.drawRightString(width - 36, height - 18, "CLASIFICACIÓN: TLP:AMBER+STRICT")
+    canvas.drawRightString(width - 36, height - 18, "TLP:AMBER+STRICT")
 
     # Pie de página
     canvas.setStrokeColor(colors.HexColor("#CBD5E1"))

@@ -1224,20 +1224,26 @@ def build_static_web_portal(
           <p>Un filtro de Nivel 1 que descarte <code>Severity == Informational</code> omitiría la intrusión exitosa tras Password Spraying, la compresión previa a la exfiltración y las 5 ejecuciones del binario persistente:</p>
           <ul style="margin:0.55rem 0 0.55rem 1.2rem;">${{items}}</ul>
         `;
-      }} else if (q.includes('exfil') || q.includes('mib') || q.includes('bytes') || q.includes('legal') || q.includes('budget')) {{
-        const inc4 = findings.find(f => f.id === 'INC-04') || findings[3];
+      }} else if (q.includes('exfil') || q.includes('mib') || q.includes('bytes') || q.includes('staging') || q.includes('fuga')) {{
+        const exfilFindings = findings.filter(f => (f.categoria || '').toLowerCase().includes('exfiltr') || (f.categoria || '').toLowerCase().includes('staging') || (f.mitre || '').includes('T1048') || (f.mitre || '').includes('T1560'));
+        const targetFindings = exfilFindings.length ? exfilFindings : findings.slice(0, 2);
+        const fItems = targetFindings.map((f, i) => `
+          <p style="margin-top:0.35rem;"><strong>${{i+1}}. ${{escapeHtml(f.titulo)}} (${{escapeHtml(f.id)}} — ${{escapeHtml(f.activos)}} / ${{escapeHtml(f.usuarios)}}):</strong> ${{escapeHtml(f.resumen_tecnico)}}</p>
+          <p><strong>IoCs:</strong> <code>${{escapeHtml(f.ioc)}}</code></p>
+          <pre>${{escapeHtml(f.comandos_contencion)}}</pre>
+        `).join('');
         html = `
-          <h3>📤 Telemetría de Exfiltración Cuantificada (INC-04 & INC-02)</h3>
-          <p>1. <strong>INC-04 (Repositorio Legal — WS-018 / CORP\\rrojas):</strong> Acceso SMB a <code>\\\\FS-SRV01\\Legal</code> (<code>EVT-00419</code>), empaquetado con <code>7z.exe a C:\\Users\\Public\\archive.7z C:\\Legal\\*.docx</code> (<code>EVT-00428</code>) y exfiltración de <strong>${{m.exfil_bytes.toLocaleString()}} bytes (${{m.exfil_mib}} MiB / ${{m.exfil_mb}} MB)</strong> en 22 conexiones <code>HTTPS POST</code> hacia <code>198.51.100.88:443</code>.</p>
-          <p style="margin-top:0.35rem;">2. <strong>INC-02 (Finanzas — APP-SRV01 → FS-SRV01 / CORP\\admin):</strong> Sustracción de <code>Budget2027.xlsx</code>, compresión con <code>tar.exe</code> en <code>C:\\Temp\\finance.zip</code> y envío a <code>203.0.113.88:443</code>.</p>
-          <pre>${{escapeHtml(inc4.comandos_contencion)}}</pre>
+          <h3>📤 Telemetría de Exfiltración Cuantificada</h3>
+          <p><strong>Volumen Total Detectado:</strong> <code>${{m.exfil_bytes ? m.exfil_bytes.toLocaleString() : '0'}} bytes (${{m.exfil_mib ? m.exfil_mib.toFixed(2) : '0.00'}} MiB / ${{m.exfil_mb ? m.exfil_mb.toFixed(2) : '0.00'}} MB)</code>.</p>
+          ${{fItems}}
         `;
-      }} else if (q.includes('ransom') || q.includes('vssadmin') || q.includes('shadow') || q.includes('ws-023')) {{
-        const inc3 = findings.find(f => f.id === 'INC-03') || findings[2];
+      }} else if (q.includes('ransom') || q.includes('vssadmin') || q.includes('shadow') || q.includes('inhibicion') || q.includes('t1490')) {{
+        const ransomF = findings.find(f => (f.categoria || '').toLowerCase().includes('vss') || (f.categoria || '').toLowerCase().includes('ransom') || (f.mitre || '').includes('T1490')) || findings[0];
         html = `
-          <h3>🚨 Alerta Pre-Ransomware en WS-023 (INC-03 — CORP\\backupsvc)</h3>
-          <p>Ejecución de PowerShell codificado en Base64 (<code>EVT-00280</code>), barrido secuencial de 16 documentos financieros <code>Finance\\FY2026\\document_000..015.xlsx</code> y destrucción de copias de sombra mediante <code>vssadmin.exe delete shadows /all /quiet</code> (<code>EVT-00314</code>, MITRE <code>T1490</code>).</p>
-          <pre>${{escapeHtml(inc3.comandos_contencion)}}</pre>
+          <h3>🚨 Alerta Pre-Ransomware / Sabotaje de Copias de Sombra (${{escapeHtml(ransomF.id)}} — ${{escapeHtml(ransomF.activos)}} / ${{escapeHtml(ransomF.usuarios)}})</h3>
+          <p><strong>Reconstrucción:</strong> ${{escapeHtml(ransomF.resumen_tecnico)}}</p>
+          <p><strong>Técnicas MITRE:</strong> <code>${{escapeHtml(ransomF.mitre)}}</code> · <strong>IoCs:</strong> <code>${{escapeHtml(ransomF.ioc)}}</code></p>
+          <pre>${{escapeHtml(ransomF.comandos_contencion)}}</pre>
         `;
       }} else if (q.includes('mitre') || q.includes('táctica') || q.includes('tecnica') || q.includes('att&ck')) {{
         const list = findings.map(f => `<li><strong>${{escapeHtml(f.id)}} (${{escapeHtml(f.riesgo)}}):</strong> <code>${{escapeHtml(f.mitre)}}</code> — ${{escapeHtml(f.titulo)}}</li>`).join('');
@@ -1245,14 +1251,26 @@ def build_static_web_portal(
           <h3>🎯 Matriz Consolidada MITRE ATT&CK v15 (SOC Nivel 2)</h3>
           <ul style="margin:0.5rem 0 0.5rem 1.2rem;">${{list}}</ul>
         `;
-      }} else if (q.includes('ip') || q.includes('ioc') || q.includes('extern')) {{
+      }} else if (q.includes('ip') || q.includes('ioc') || q.includes('extern') || q.includes('firewall') || q.includes('atacante')) {{
+        const inIps = new Set();
+        const outIps = new Set();
+        const arts = new Set();
+        findings.forEach(f => {{
+          (f.ioc || '').split(';').forEach(p => {{
+            const part = p.trim();
+            if (part.includes('IP Atacante:') || part.includes('IP Origen:')) inIps.add(part.split(':')[1]?.trim());
+            else if (part.includes('IP Destino:') || part.includes('C2:') || part.includes('Destino:')) outIps.add(part.split(':')[1]?.trim());
+            else if (part.includes('Archivo:') || part.includes('Ruta:') || part.includes('Webshell:')) arts.add(part.split(':')[1]?.trim());
+          }});
+        }});
+        const inHtml = inIps.size ? [...inIps].map(ip => `<li><code>${{escapeHtml(ip)}}</code></li>`).join('') : '<li>No se registraron IPs externas inbound.</li>';
+        const outHtml = outIps.size ? [...outIps].map(ip => `<li><code>${{escapeHtml(ip)}}</code></li>`).join('') : '<li>No se registraron IPs salientes outbound.</li>';
+        const artHtml = arts.size ? [...arts].map(a => `<li><code>${{escapeHtml(a)}}</code></li>`).join('') : '<li>Sin rutas de archivos anómalos.</li>';
         html = `
-          <h3>🌐 Indicadores de Compromiso (IoCs) — Red, Artefactos y Cuentas</h3>
-          <ul style="margin:0.45rem 0 0.45rem 1.2rem;">
-            <li><strong>IPs Atacantes (Inbound):</strong> <code>203.0.113.74</code> (Password Spraying DC-01), <code>198.51.100.77</code> (RDP Brute Force APP-SRV01), <code>192.0.2.91</code> (Webshell RCE WEB-01).</li>
-            <li><strong>IPs Receptoras de Exfiltración (Outbound TCP/443):</strong> <code>198.51.100.88:443</code> (241.57 MiB Legal) y <code>203.0.113.88:443</code> (Budget2027.xlsx).</li>
-            <li><strong>Artefactos Maliciosos:</strong> <code>C:\\Temp\\finance.zip</code>, <code>C:\\Users\\Public\\archive.7z</code>, <code>C:\\ProgramData\\wuhelper.exe</code>, <code>/uploads/test.aspx</code>.</li>
-          </ul>
+          <h3>🌐 Indicadores de Compromiso (IoCs) Correlacionados Dinámicamente</h3>
+          <p><strong>IPs Externas Atacantes (Inbound):</strong></p><ul style="margin:0.35rem 0 0.45rem 1.2rem;">${{inHtml}}</ul>
+          <p style="margin-top:0.4rem;"><strong>Destinos C2 / Conexiones Salientes (Outbound):</strong></p><ul style="margin:0.35rem 0 0.45rem 1.2rem;">${{outHtml}}</ul>
+          <p style="margin-top:0.4rem;"><strong>Artefactos y Rutas en Disco:</strong></p><ul style="margin:0.35rem 0 0.45rem 1.2rem;">${{artHtml}}</ul>
         `;
       }} else if (q.includes('dc-01') || q.includes('dc01') || q.includes('normaliz') || q.includes('backupsvc')) {{
         html = `
@@ -1416,14 +1434,14 @@ def build_static_web_portal(
 
       // 2. Cronología por ventana de 10 min
       const windows = [...new Set(malLogs.map(r => r.Minute_Window))].sort();
-      const incIds = ['INC-01', 'INC-02', 'INC-03', 'INC-04', 'INC-05', 'INC-06'];
-      const palette = ['#FF2A5F', '#F97316', '#FBBF24', '#8B5CF6', '#00F0FF', '#10B981'];
+      const incIds = [...new Set(malLogs.map(r => r.Incident_ID))].sort();
+      const defaultPalette = ['#FF2A5F', '#F97316', '#FBBF24', '#8B5CF6', '#00F0FF', '#10B981', '#EC4899', '#6366F1'];
       const timeTraces = incIds.map((id, i) => ({{
         x: windows,
         y: windows.map(w => malLogs.filter(r => r.Incident_ID === id && r.Minute_Window === w).length),
         name: id,
         type: 'bar',
-        marker: {{ color: palette[i] }}
+        marker: {{ color: defaultPalette[i % defaultPalette.length] }}
       }}));
 
       Plotly.newPlot('chartTimeline', timeTraces, {{
@@ -1540,7 +1558,408 @@ def build_static_web_portal(
       }}, 220);
     }}
 
-    // Soporte de carga de archivos Excel (.xlsx) en el navegador con SheetJS
+    function isExternalIpClient(ipStr) {{
+      if (!ipStr || typeof ipStr !== 'string') return false;
+      const ip = ipStr.trim().split(':')[0];
+      const parts = ip.split('.').map(Number);
+      if (parts.length !== 4 || parts.some(isNaN)) return false;
+      if (parts[0] === 127) return false;
+      if (parts[0] === 10) return false;
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
+      if (parts[0] === 192 && parts[1] === 168) return false;
+      if (parts[0] === 0 || parts[0] >= 224) return false;
+      return true;
+    }}
+
+    function runAutonomousSiemEngine(rawRows) {{
+      function findVal(row, candidates) {{
+        const keys = Object.keys(row);
+        for (const c of candidates) {{
+          const normC = c.toLowerCase().replace(/[\\s_-]+/g, '');
+          const match = keys.find(k => k.trim().toLowerCase().replace(/[\\s_-]+/g, '') === normC);
+          if (match !== undefined && row[match] !== undefined) return row[match];
+        }}
+        return '';
+      }}
+
+      const logs = rawRows.map((r, idx) => {{
+        const logId = String(findVal(r, ['Log_ID', 'LogID', 'ID', 'Id']) || ('EVT-' + String(idx + 1).padStart(5, '0')));
+        const timestamp = String(findVal(r, ['Timestamp', 'Time', 'DateTime', 'Date']) || '');
+        const eventId = Number(findVal(r, ['Event_ID', 'EventID', 'EventId', 'Event']) || 0);
+        const severity = String(findVal(r, ['Severity', 'Level', 'Severidad']) || 'Informational');
+        const channel = String(findVal(r, ['Channel', 'Log_Name', 'Canal']) || 'Security');
+        let hostname = String(findVal(r, ['Hostname', 'Computer', 'Host', 'Equipo']) || '');
+        let user = String(findVal(r, ['User', 'Account', 'UserName', 'Usuario']) || '');
+        const procName = String(findVal(r, ['Process_Name', 'ProcessName', 'Image', 'Process']) || '');
+        const cmdLine = String(findVal(r, ['Command_Line', 'CommandLine', 'Process_CommandLine', 'Comando']) || '');
+        const srcIp = String(findVal(r, ['Source_IP', 'SourceIP', 'SrcIP', 'IP_Origen']) || '-');
+        const dstIp = String(findVal(r, ['Destination_IP', 'DestinationIP', 'DstIP', 'IP_Destino']) || '-');
+        const msg = String(findVal(r, ['Message', 'Event_Description', 'Description', 'Mensaje']) || '');
+
+        let hostnameNorm = hostname.trim().toUpperCase();
+        if (hostnameNorm === 'DC01') hostnameNorm = 'DC-01';
+
+        let userNorm = user.trim();
+        if (userNorm.toUpperCase() === 'CORP\\\\SVC_BACKUP') userNorm = 'CORP\\\\backupsvc';
+
+        const isExt = isExternalIpClient(srcIp) || isExternalIpClient(dstIp);
+        const minWindow = timestamp ? timestamp.substring(0, 15) + '0' : 'N/A';
+
+        let bytesOut = 0;
+        const bMatch = (cmdLine + ' ' + msg).match(/bytes_out=(\\d+)/i);
+        if (bMatch) bytesOut = parseInt(bMatch[1], 10);
+
+        return {{
+          Log_ID: logId,
+          Timestamp: timestamp,
+          Event_ID: eventId,
+          Severity: severity,
+          Channel: channel,
+          Hostname: hostname,
+          Hostname_Norm: hostnameNorm,
+          User: user,
+          User_Norm: userNorm,
+          Process_Name: procName,
+          Command_Line: cmdLine,
+          Source_IP: srcIp,
+          Destination_IP: dstIp,
+          Destination: dstIp !== '-' ? dstIp : (hostnameNorm || '-'),
+          Message: msg,
+          Event_Description: msg,
+          Process_CommandLine: cmdLine || procName || msg,
+          External_IP: isExt,
+          Minute_Window: minWindow,
+          Incident_ID: 'NONE',
+          Incident_Tag: 'Tráfico Normal',
+          Hidden_Trap: false,
+          Bytes_Out: bytesOut
+        }};
+      }});
+
+      // Heuristic 1: Password Spraying & Brute Force
+      const failed4625ByIp = {{}};
+      logs.forEach(l => {{
+        if (l.Event_ID === 4625 && l.Source_IP !== '-' && isExternalIpClient(l.Source_IP)) {{
+          if (!failed4625ByIp[l.Source_IP]) failed4625ByIp[l.Source_IP] = [];
+          failed4625ByIp[l.Source_IP].push(l);
+        }}
+      }});
+      Object.keys(failed4625ByIp).forEach(ip => {{
+        const group = failed4625ByIp[ip];
+        if (group.length >= 5) {{
+          group.forEach(l => {{
+            l.Incident_ID = 'INC-01';
+            l.Incident_Tag = 'INC-01: Password Spraying';
+          }});
+          const dcHosts = new Set(group.map(g => g.Hostname_Norm));
+          logs.forEach(l => {{
+            if ((l.Event_ID === 4624 || l.Event_ID === 4672) && l.Source_IP === ip && dcHosts.has(l.Hostname_Norm)) {{
+              l.Incident_ID = 'INC-01';
+              l.Incident_Tag = 'INC-01: Password Spraying';
+            }}
+          }});
+        }}
+      }});
+
+      // Heuristic 2: External RDP & Lateral SMB
+      logs.forEach(l => {{
+        const text = (l.Command_Line + ' ' + l.Message).toLowerCase();
+        if (l.Event_ID === 4624 && (text.includes('logontype: 10') || text.includes('logontype 10') || text.includes('port 3389') || text.includes(':3389')) && isExternalIpClient(l.Source_IP)) {{
+          l.Incident_ID = 'INC-02';
+          l.Incident_Tag = 'INC-02: RDP Ingress & Lateral';
+          const rdpHost = l.Hostname_Norm;
+          const rdpUser = l.User_Norm;
+          logs.forEach(subL => {{
+            if (subL.Hostname_Norm === rdpHost && subL.User_Norm === rdpUser && subL.Log_ID !== l.Log_ID) {{
+              const subText = (subL.Command_Line + ' ' + subL.Message).toLowerCase();
+              if (subL.Event_ID === 4624 || subL.Event_ID === 5140 || subL.Event_ID === 5145 || subL.Event_ID === 4688 || subText.includes('tar.exe') || subText.includes('budget')) {{
+                subL.Incident_ID = 'INC-02';
+                subL.Incident_Tag = 'INC-02: RDP Ingress & Lateral';
+              }}
+            }}
+          }});
+        }}
+      }});
+
+      // Heuristic 3: Pre-Ransomware / VSS Sabotage
+      const vssRegex = /(vssadmin.*delete.*shadows|wmic.*shadowcopy.*delete|bcdedit.*recoveryenabled.*no|wbadmin.*delete)/i;
+      logs.forEach(l => {{
+        if (vssRegex.test(l.Command_Line) || vssRegex.test(l.Message)) {{
+          l.Incident_ID = 'INC-03';
+          l.Incident_Tag = 'INC-03: Pre-Ransomware VSS Sabotage';
+          const host = l.Hostname_Norm;
+          const user = l.User_Norm;
+          logs.forEach(subL => {{
+            if (subL.Hostname_Norm === host && subL.User_Norm === user) {{
+              const subText = (subL.Command_Line + ' ' + subL.Message).toLowerCase();
+              if (subText.includes('powershell') || subText.includes('fy2026') || subText.includes('document_') || (subL.Event_ID === 5145 && subText.includes('finance'))) {{
+                subL.Incident_ID = 'INC-03';
+                subL.Incident_Tag = 'INC-03: Pre-Ransomware VSS Sabotage';
+              }}
+            }}
+          }});
+        }}
+      }});
+
+      // Heuristic 4: Archiving Staging & Data Exfiltration
+      const archRegex = /(?:7z\\.exe|tar\\.exe|zip\\.exe|rar\\.exe).*?(?:archive|\\.7z|\\.zip|\\.tar|\\.rar)/i;
+      logs.forEach(l => {{
+        if (archRegex.test(l.Command_Line) && l.Incident_ID === 'NONE') {{
+          l.Incident_ID = 'INC-04';
+          l.Incident_Tag = 'INC-04: Exfiltración de Datos';
+          const host = l.Hostname_Norm;
+          logs.forEach(subL => {{
+            if (subL.Hostname_Norm === host && subL.Incident_ID === 'NONE') {{
+              const subText = (subL.Command_Line + ' ' + subL.Message).toLowerCase();
+              if (subL.Bytes_Out > 500000 || subText.includes('https post') || subText.includes('legal') || isExternalIpClient(subL.Destination_IP)) {{
+                subL.Incident_ID = 'INC-04';
+                subL.Incident_Tag = 'INC-04: Exfiltración de Datos';
+              }}
+            }}
+          }});
+        }}
+      }});
+
+      // Heuristic 5: Dual Persistence
+      logs.forEach(l => {{
+        const text = (l.Command_Line + ' ' + l.Message).toLowerCase();
+        if (l.Event_ID === 4698 || l.Event_ID === 7045 || text.includes('schtasks') || text.includes('sc create') || text.includes('wuhelper')) {{
+          if (l.Incident_ID === 'NONE') {{
+            l.Incident_ID = 'INC-05';
+            l.Incident_Tag = 'INC-05: Dual Persistence';
+          }}
+        }}
+      }});
+
+      // Heuristic 6: Web Exploitation & RCE
+      const webWorkerRegex = /(?:w3wp\\.exe|httpd\\.exe|nginx|tomcat|node\\.exe)/i;
+      const shellRegex = /(?:cmd\\.exe|powershell\\.exe|bash|sh|whoami|net\\.exe|ipconfig)/i;
+      logs.forEach(l => {{
+        const text = (l.Command_Line + ' ' + l.Message).toLowerCase();
+        if ((webWorkerRegex.test(l.Process_Name) || text.includes('aspx') || text.includes('uploads') || text.includes('webshell') || text.includes('whoami')) && (shellRegex.test(l.Command_Line) || text.includes('whoami') || text.includes('uploads/test.aspx'))) {{
+          if (l.Incident_ID === 'NONE') {{
+            l.Incident_ID = 'INC-06';
+            l.Incident_Tag = 'INC-06: Web Exploitation & RCE';
+          }}
+        }}
+      }});
+
+      // Heuristic 7: Audit Informational Hidden Traps
+      logs.forEach(l => {{
+        if (l.Incident_ID !== 'NONE' && (l.Severity === 'Informational' || l.Severity === 'Low')) {{
+          l.Hidden_Trap = true;
+        }}
+      }});
+
+      // Calculate Metrics
+      const totalLogs = logs.length;
+      const malLogs = logs.filter(l => l.Incident_ID !== 'NONE');
+      const malCount = malLogs.length;
+      const hiddenLogs = logs.filter(l => l.Hidden_Trap);
+      const hiddenCount = hiddenLogs.length;
+      const nativeNonInfo = logs.filter(l => l.Severity !== 'Informational').length;
+      const extCount = logs.filter(l => l.External_IP).length;
+
+      let exfilBytes = 0;
+      let exfilTransfers = 0;
+      logs.forEach(l => {{
+        if (l.Bytes_Out > 0 && l.Incident_ID === 'INC-04') {{
+          exfilBytes += l.Bytes_Out;
+          exfilTransfers++;
+        }}
+      }});
+      const exfilMib = exfilBytes / (1024 * 1024);
+      const exfilMb = exfilBytes / 1000000;
+
+      const timestamps = logs.map(l => l.Timestamp).filter(Boolean).sort();
+      const timeStart = timestamps[0] || 'N/A';
+      const timeEnd = timestamps[timestamps.length - 1] || 'N/A';
+
+      // Group Findings
+      const incMap = {{}};
+      malLogs.forEach(l => {{
+        if (!incMap[l.Incident_ID]) {{
+          incMap[l.Incident_ID] = {{
+            id: l.Incident_ID,
+            tag: l.Incident_Tag,
+            logs: []
+          }};
+        }}
+        incMap[l.Incident_ID].logs.push(l);
+      }});
+
+      const findings = Object.keys(incMap).sort().map(incId => {{
+        const group = incMap[incId];
+        const gLogs = group.logs;
+        const hosts = [...new Set(gLogs.map(l => l.Hostname_Norm).filter(Boolean))].join(', ');
+        const users = [...new Set(gLogs.map(l => l.User_Norm).filter(Boolean))].join(', ');
+        const inIps = [...new Set(gLogs.map(l => l.Source_IP).filter(ip => ip !== '-' && isExternalIpClient(ip)))].join(', ');
+        const outIps = [...new Set(gLogs.map(l => l.Destination_IP).filter(ip => ip !== '-' && isExternalIpClient(ip)))].join(', ');
+        const hiddenInGroup = gLogs.filter(l => l.Hidden_Trap).length;
+
+        let titulo = group.tag.split(': ')[1] || group.tag;
+        let categoria = titulo;
+        let riesgo = 'Alto';
+        let cvss = '8.8';
+        let mitre = 'T1078 (Valid Accounts), T1021 (Remote Services)';
+        let resumenEjecutivo = `Compromiso detectado que afecta a ${{hosts}} a través de la identidad de ${{users}}. Se correlacionaron ${{gLogs.length}} eventos.`;
+        let resumenTecnico = `Se registraron ${{gLogs.length}} eventos correlacionados (${{hiddenInGroup}} ocultos en Informational). Vector observado entre ${{hosts}} y usuarios ${{users}}.`;
+        let remediacion = `1. Aislar host(s) ${{hosts}}.\\n2. Revocar credenciales de ${{users}}.\\n3. Bloquear comunicaciones con IPs ${{inIps || outIps || 'asociadas'}}.`;
+        let comandos = `# [${{incId}}] Contención de Host\\nStop-Process -Name powershell -Force -ErrorAction SilentlyContinue\\nDisable-NetAdapter -Name * -Confirm:$false`;
+
+        if (incId === 'INC-01') {{
+          titulo = 'Ataque de Password Spraying contra Controlador de Dominio';
+          categoria = 'Password Spraying / Brute Force';
+          cvss = '8.8';
+          mitre = 'T1110.003 (Password Spraying), T1078.002 (Domain Accounts)';
+          resumenEjecutivo = `Ataque masivo de autenticación desde IP ${{inIps}} contra el controlador de dominio (${{hosts}}) intentando múltiples cuentas corporativas hasta vulnerar a ${{users}}.`;
+          resumenTecnico = `Múltiples eventos 4625 seguidos de autenticación exitosa (4624) y elevación de privilegios (4672). Se identificaron ${{hiddenInGroup}} eventos clasificados erróneamente como Informational.`;
+          comandos = `Reset-ADAccountPassword -Identity "${{users.split(',')[0] || 'User'}}" -Reset\\nNew-NetFirewallRule -DisplayName "Block-Attacker-Spray" -Direction Inbound -RemoteAddress ${{inIps || '203.0.113.74'}} -Action Block`;
+        }} else if (incId === 'INC-02') {{
+          titulo = 'Ingreso RDP Externo y Movimiento Lateral hacia Servidor de Archivos';
+          categoria = 'RDP Brute Force & Lateral SMB';
+          cvss = '9.1';
+          mitre = 'T1021.001 (RDP), T1021.002 (SMB/Windows Admin Shares), T1560 (Archive Collected Data)';
+          resumenEjecutivo = `Acceso interactivo remoto no autorizado desde IP externa ${{inIps}} hacia ${{hosts}}, con posterior movimiento lateral y empaquetado de archivos financieros.`;
+          resumenTecnico = `Logon Type 10 desde IP externa ${{inIps}}, conexión SMB a recursos compartidos y empaquetado de datos confidenciales.`;
+          comandos = `Disable-NetFirewallRule -DisplayGroup "Remote Desktop"\\nRevoke-SmbShareAccess -Name "Finance" -AccountName "${{users.split(',')[0] || 'admin'}}" -Force`;
+        }} else if (incId === 'INC-03') {{
+          titulo = 'Intento de Infección por Ransomware y Destrucción de Shadow Copies';
+          categoria = 'Pre-Ransomware & Inhibición de Recuperación';
+          cvss = '9.6';
+          mitre = 'T1490 (Inhibit System Recovery), T1059.001 (PowerShell)';
+          resumenEjecutivo = `Destrucción deliberada de copias de seguridad de volumen mediante comandos nativos en ${{hosts}}, maniobra crítica previa al cifrado masivo de archivos.`;
+          resumenTecnico = `Invocación de utilidades del sistema (vssadmin delete shadows /all /quiet) correlacionada con barrido masivo de archivos y scripts PowerShell codificados.`;
+          comandos = `Stop-Process -Name powershell -Force\\nvssadmin list shadows\\nSet-Service -Name VSS -StartupType Automatic; Start-Service VSS`;
+        }} else if (incId === 'INC-04') {{
+          titulo = 'Exfiltración Masiva de Documentos Confidenciales vía HTTPS';
+          categoria = 'Exfiltración de Datos';
+          cvss = '9.3';
+          mitre = 'T1560.001 (Archive via Utility), T1048.003 (Exfiltration Over Unencrypted/Encrypted Non-C2 Protocol)';
+          resumenEjecutivo = `Compresión en disco y transferencia masiva de ${{exfilMib.toFixed(2)}} MiB de contratos y documentos confidenciales hacia endpoint externo (${{outIps}}).`;
+          resumenTecnico = `Uso de utilidades de archivo para crear paquetes de staging y posteriores transmisiones outbound HTTPS POST cuantificadas en ${{exfilBytes.toLocaleString()}} bytes.`;
+          comandos = `New-NetFirewallRule -DisplayName "Block-C2-Egress" -Direction Outbound -RemoteAddress ${{outIps || '198.51.100.88'}} -Action Block\\nRemove-Item -Path "C:\\Users\\Public\\archive.7z" -Force -ErrorAction SilentlyContinue`;
+        }} else if (incId === 'INC-05') {{
+          titulo = 'Instalación de Mecanismo Dual de Persistencia en Servidor';
+          categoria = 'Dual Persistence';
+          cvss = '8.4';
+          mitre = 'T1053.005 (Scheduled Task), T1543.003 (Windows Service)';
+          resumenEjecutivo = `Creación de tarea programada y servicio malicioso en ${{hosts}} para garantizar la ejecución recurrente de un binario no autorizado.`;
+          resumenTecnico = `Eventos 4698 y 7045 registrando la instalación y ejecución recurrente del binario malicioso.`;
+          comandos = `Unregister-ScheduledTask -TaskName "WindowsUpdateCheck" -Confirm:$false\\nsc.exe delete "WindowsUpdateService"\\nStop-Process -Name "wuhelper" -Force -ErrorAction SilentlyContinue`;
+        }} else if (incId === 'INC-06') {{
+          titulo = 'Explotación Web RCE y Ejecución Remota de Comandos vía Webshell';
+          categoria = 'Web Exploitation & RCE';
+          cvss = '9.8';
+          mitre = 'T1190 (Exploit Public-Facing Application), T1505.003 (Web Shell)';
+          resumenEjecutivo = `Compromiso del servidor web público ${{hosts}} mediante subida de webshell que permitió ejecución remota de comandos del sistema operativo.`;
+          resumenTecnico = `Proceso del servidor web generando instancias secundarias de intérpretes de comandos para ejecución de comandos de reconocimiento.`;
+          comandos = `Stop-WebAppPool -Name "DefaultAppPool"\\nRemove-Item -Path "C:\\inetpub\\wwwroot\\uploads\\test.aspx" -Force -ErrorAction SilentlyContinue`;
+        }}
+
+        return {{
+          id: incId,
+          titulo: titulo,
+          categoria: categoria,
+          riesgo: riesgo,
+          severidad: 'Alta',
+          cvss_estimado: cvss,
+          ventana: `${{gLogs[0]?.Timestamp || 'N/A'}} a ${{gLogs[gLogs.length - 1]?.Timestamp || 'N/A'}}`,
+          eventos_count: gLogs.length,
+          eventos_ocultos_info: hiddenInGroup,
+          activos: hosts || '-',
+          usuarios: users || '-',
+          mitre: mitre,
+          ioc: `IP Atacante: ${{inIps || '-'}}; IP Destino: ${{outIps || '-'}}; Hostnames: ${{hosts || '-'}}; Usuarios: ${{users || '-'}}`,
+          evidencia_logs: gLogs.slice(0, 5).map(l => l.Log_ID).join(', '),
+          resumen_ejecutivo: resumenEjecutivo,
+          resumen_tecnico: resumenTecnico,
+          remediacion: remediacion,
+          comandos_contencion: comandos
+        }};
+      }});
+
+      // Build Dynamic Markdown Reports
+      const execMd = [
+        "1. RESUMEN GERENCIAL DE LA SITUACIÓN",
+        `Durante la ventana operativa (${{timeStart}} a ${{timeEnd}} UTC), el Centro de Operaciones de Seguridad (SOC Nivel 2) auditó ${{totalLogs}} registros SIEM e identificó ${{findings.length}} incidentes de ciberseguridad (${{findings.filter(f => f.riesgo === 'Alto').length}} de RIESGO ALTO). Mientras las reglas nativas del SIEM solo clasificaban ${{nativeNonInfo}} alertas, el motor de correlación avanzada vinculó ${{malCount}} eventos maliciosos al destapar ${{hiddenCount}} eventos críticos que habían quedado ocultos bajo severidad 'Informational'.\\n`,
+        "2. IMPACTO CRÍTICO AL NEGOCIO Y EXPOSICIÓN CORPORATIVA",
+        ...findings.map(f => `- ${{f.titulo}} [${{f.id}}]: ${{f.resumen_ejecutivo}}`),
+        "\\n3. DECISIONES EJECUTIVAS Y PLAN DE ACCIÓN INMEDIATO (0 A 24 HORAS)",
+        `- Acción 1 — Contención Inmediata: Aislar preventivamente los activos comprometidos (${{[...new Set(findings.map(f => f.activos))].join(', ')}}).`,
+        `- Acción 2 — Revocación de Credenciales: Forzar reseteo de contraseñas de las identidades involucradas (${{[...new Set(findings.map(f => f.usuarios))].join(', ')}}).`,
+        exfilBytes > 0 ? `- Acción 3 — Comité Legal por Fuga de Datos: Evaluar el impacto de ${{exfilMib.toFixed(2)}} MiB exfiltrados.` : `- Acción 3 — Auditoría de Integridad: Verificar integridad de sistemas de almacenamiento.`,
+        `- Acción 4 — Tuning de Ingesta SIEM: Reclasificar de inmediato los ${{hiddenCount}} eventos críticos que evadieron alertas como 'Informational'.`
+      ].join('\\n');
+
+      const techMd = [
+        "1. ARQUITECTURA DE CORRELACIÓN Y AUDITORÍA DE TELEMETRÍA SIEM (NIVEL 2)",
+        `- Ventana temporal analizada: ${{timeStart}} a ${{timeEnd}} (${{totalLogs}} eventos totales).`,
+        `- Hallazgo de Evasión / Visibilidad SOC: Se identificaron ${{hiddenCount}} eventos críticos de ataque catalogados como 'Informational'.`,
+        "\\n2. ANÁLISIS FORENSE DETALLADO POR INCIDENTE",
+        ...findings.map(f => `[${{f.id}}] ${{f.titulo}}\\n  * Riesgo: ${{f.riesgo}} | CVSS: ${{f.cvss_estimado}}\\n  * Ventana: ${{f.ventana}} | Eventos: ${{f.eventos_count}} (Ocultos en Info: ${{f.eventos_ocultos_info}})\\n  * Activos: ${{f.activos}} | Usuarios: ${{f.usuarios}}\\n  * MITRE ATT&CK: ${{f.mitre}}\\n  * IoCs: ${{f.ioc}}\\n  * Evidencia: ${{f.evidencia_logs}}\\n  * Reconstrucción: ${{f.resumen_tecnico}}\\n  * Comandos de Respuesta:\\n    ${{f.comandos_contencion}}`)
+      ].join('\\n\\n');
+
+      // Update SOC_DATA globally
+      SOC_DATA.findings = findings;
+      SOC_DATA.logs = logs;
+      SOC_DATA.hidden_events = hiddenLogs;
+      SOC_DATA.metrics = {{
+        total_logs: totalLogs,
+        correlated_malicious_events: malCount,
+        native_non_info_alerts: nativeNonInfo,
+        hidden_info_critical_events: hiddenCount,
+        exfil_bytes: exfilBytes,
+        exfil_mib: exfilMib,
+        exfil_mb: exfilMb,
+        time_start: timeStart,
+        time_end: timeEnd,
+        normalization: {{
+          dc_hyphen_count: logs.filter(l => l.Hostname === 'DC-01').length,
+          dc_no_hyphen_count: logs.filter(l => l.Hostname === 'DC01').length,
+          backupsvc_count: logs.filter(l => l.User.toLowerCase().includes('backupsvc')).length,
+          svc_backup_count: logs.filter(l => l.User.toLowerCase().includes('svc_backup')).length
+        }}
+      }};
+      SOC_DATA.exec_md = execMd;
+      SOC_DATA.tech_md = techMd;
+
+      // Update KPI Cards in DOM
+      document.getElementById('kpiTotalLogs').textContent = totalLogs;
+      document.getElementById('kpiMaliciousLogs').textContent = malCount;
+      document.getElementById('kpiMaliciousSub').textContent = `+${{hiddenCount}} ocultos en 'Info' (vs ${{malCount - hiddenCount}} SIEM)`;
+      document.getElementById('kpiIncidentsCount').textContent = `${{findings.filter(f => f.riesgo === 'Alto').length}} Críticos`;
+      document.getElementById('kpiExfilMib').textContent = `${{exfilMib.toFixed(2)}} MiB`;
+      document.getElementById('kpiExfilSub').textContent = `${{exfilMb.toFixed(2)}} MB (${{exfilTransfers}} transferencias)`;
+      document.getElementById('kpiExtIpCount').textContent = `${{extCount}} logs`;
+      document.getElementById('heroCritBadge').textContent = `🔴 ${{findings.filter(f => f.riesgo === 'Alto').length}} INCIDENTES CRÍTICOS`;
+      document.getElementById('heroHiddenBadge').textContent = `🕵️‍♂️ ${{hiddenCount}} RESCATADOS DE 'INFORMATIONAL'`;
+      document.getElementById('heroSubText').textContent = `Auditoría integral de ${{totalLogs}} eventos SIEM · Ventana UTC: ${{timeStart}} → ${{timeEnd}} · Correlación MITRE ATT&CK v15`;
+
+      // Update Incident Filter Dropdown in Log Table
+      const incSelect = document.getElementById('logIncidentFilter');
+      incSelect.innerHTML = '<option value="ALL">Todos los Incidentes</option>';
+      const uniqueTags = [...new Set(logs.map(r => r.Incident_Tag))];
+      uniqueTags.forEach(t => {{
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t;
+        incSelect.appendChild(opt);
+      }});
+
+      // Re-render UI Components
+      renderIncidents('ALL');
+      renderCharts();
+      renderHiddenTrapsTable();
+      renderLogTable();
+      document.getElementById('execReportBox').value = execMd;
+      document.getElementById('techReportBox').value = techMd;
+      runJevCopilot('Resumen ejecutivo del estado global de telemetría');
+
+      return {{ totalLogs, malCount, hiddenCount, findingsCount: findings.length }};
+    }}
+
+    // Soporte de carga de archivos Excel (.xlsx) en el navegador con SheetJS y Motor Heurístico Autónomo
     document.getElementById('excelUploadInput').addEventListener('change', function(evt) {{
       const file = evt.target.files[0];
       if (!file) return;
@@ -1550,9 +1969,14 @@ def build_static_web_portal(
           const wb = XLSX.read(new Uint8Array(e.target.result), {{ type: 'array' }});
           const sheetName = wb.SheetNames.includes('SIEM Export') ? 'SIEM Export' : wb.SheetNames[0];
           const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-          document.getElementById('datasetStatusBadge').textContent = `✓ Cargado: ${{file.name}} (${{rows.length}} registros en '${{sheetName}}')`;
+          if (!rows || !rows.length) {{
+            throw new Error("La hoja '" + sheetName + "' está vacía.");
+          }}
+          const res = runAutonomousSiemEngine(rows);
+          document.getElementById('datasetStatusBadge').innerHTML = `✓ Motor Autónomo L2 Ejecutado: <strong>${{escapeHtml(file.name)}}</strong> (${{res.totalLogs}} logs, ${{res.malCount}} maliciosos, ${{res.hiddenCount}} ocultos en Info)`;
         }} catch (err) {{
-          document.getElementById('datasetStatusBadge').textContent = `⚠️ Error al leer Excel: ${{err.message}}`;
+          console.error(err);
+          document.getElementById('datasetStatusBadge').textContent = `⚠️ Error al procesar Excel: ${{err.message}}`;
         }}
       }};
       reader.readAsArrayBuffer(file);

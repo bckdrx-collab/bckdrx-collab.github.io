@@ -99,63 +99,99 @@ def build_deterministic_reports(
     Construye el Informe Ejecutivo (C-Level) y el Informe Técnico Forense (SOC Nivel 2)
     con precisión matemática sobre los 715 eventos del dataset oficial.
     """
-    total_logs = summary_metrics["total_logs"]
-    native_alerts = summary_metrics["native_non_info_alerts"]
-    corr_events = summary_metrics["correlated_malicious_events"]
-    hidden_info = summary_metrics["hidden_info_critical_events"]
-    exfil_mib = summary_metrics["exfil_mib"]
-    exfil_mb = summary_metrics["exfil_mb"]
-    exfil_bytes = summary_metrics["exfil_bytes"]
+    total_logs = summary_metrics.get("total_logs", 0)
+    native_alerts = summary_metrics.get("native_non_info_alerts", 0)
+    corr_events = summary_metrics.get("correlated_malicious_events", 0)
+    hidden_info = summary_metrics.get("hidden_info_critical_events", 0)
+    exfil_mib = summary_metrics.get("exfil_mib", 0.0)
+    exfil_mb = summary_metrics.get("exfil_mb", 0.0)
+    exfil_bytes = summary_metrics.get("exfil_bytes", 0)
+    time_start = summary_metrics.get("time_start", "-")
+    time_end = summary_metrics.get("time_end", "-")
 
-    exec_report = (
-        "1. RESUMEN GERENCIAL DE LA SITUACIÓN\n"
-        f"Durante la ventana operativa del 23 de octubre de 2026 (07:46:07 a 13:44:06 UTC), el Centro de Operaciones "
-        f"de Seguridad (SOC Nivel 2) auditó {total_logs} registros de telemetría SIEM e identificó seis (6) incidentes "
-        f"críticos de ciberseguridad de RIESGO ALTO y una (1) brecha operativa de visibilidad de RIESGO MEDIO. "
-        f"Mientras que las reglas básicas del SIEM solo marcaban {native_alerts} alertas, el motor de correlación "
-        f"avanzada vinculó {corr_events} eventos maliciosos al destapar {hidden_info} eventos críticos que habían "
-        f"quedado ocultos bajo severidad 'Informational'.\n\n"
-        "2. IMPACTO CRÍTICO AL NEGOCIO Y EXPOSICIÓN CORPORATIVA\n"
-        "- Sustracción de Información Financiera y Legal Confidencial: Un atacante externo vulneró la cuenta privilegiada "
-        "CORP\\admin en el servidor APP-SRV01, accedió al servidor financiero FS-SRV01 y robó el presupuesto estratégico "
-        "'Budget2027.xlsx' (INC-02). Paralelamente, desde el equipo interno WS-018 (usuario CORP\\rrojas), se comprimieron "
-        f"y extrajeron {exfil_mib:.2f} MiB ({exfil_mb:.2f} MB / {exfil_bytes:,} bytes) de contratos y documentos confidenciales "
-        "del departamento Legal hacia un servidor externo en 22 transferencias cifradas (INC-04).\n"
-        "- Riesgo Inminente de Parálisis Operativa por Ransomware: La cuenta de servicio de respaldos CORP\\backupsvc fue "
-        "utilizada en la estación WS-023 para recorrer los estados financieros de FY2026 y destruir todas las copias de "
-        "recuperación locales (Volume Shadow Copies mediante vssadmin.exe), maniobra característica previa al cifrado "
-        "masivo de archivos (INC-03).\n"
-        "- Compromiso de Activos Públicos y Persistencia en Servidores: El servidor web público WEB-01 fue vulnerado mediante "
-        "una puerta trasera (Webshell ASPX) que permitió la ejecución remota de comandos (INC-06). Asimismo, en APP-SRV01 "
-        "se instalaron dos mecanismos ocultos de persistencia (una tarea programada y un servicio de Windows) que ejecutan "
-        "código no autorizado cada 6 minutos (INC-05), además del compromiso de la cuenta CORP\\mgarcia tras un ataque de "
-        "Password Spraying contra el Controlador de Dominio DC-01 (INC-01).\n\n"
-        "3. DECISIONES EJECUTIVAS Y PLAN DE ACCIÓN INMEDIATO (0 A 24 HORAS)\n"
-        "- Acción 1 — Autorizar Contención de Red Inmediata: Aislar de forma preventiva los servidores APP-SRV01 y WEB-01, "
-        "así como las estaciones de trabajo WS-023 (pre-ransomware) y WS-018 (fuga de documentos legales).\n"
-        "- Acción 2 — Activar el Comité de Crisis Legal y Regulatoria: Evaluar el impacto contractual y de protección de datos "
-        f"derivado de la exfiltración de 'Budget2027.xlsx' y de los {exfil_mib:.2f} MiB del repositorio Legal, preservando WS-018 "
-        "bajo cadena de custodia forense.\n"
-        "- Acción 3 — Revocación Masiva de Credenciales y Cierre de Brechas Perimetrales: Forzar el cambio de contraseñas de "
-        "CORP\\admin, CORP\\mgarcia, CORP\\backupsvc, CORP\\rrojas y CORP\\helpdesk; eliminar la exposición directa de Escritorio "
-        "Remoto (RDP) a Internet e implementar Autenticación Multifactor (MFA) obligatoria."
-    )
+    high_count = sum(1 for f in findings if f.get("riesgo") == "Alto")
+    med_count = sum(1 for f in findings if f.get("riesgo") == "Medio")
+    low_count = sum(1 for f in findings if f.get("riesgo") == "Bajo")
+
+    exec_lines = [
+        "1. RESUMEN GERENCIAL DE LA SITUACIÓN",
+        f"Durante la ventana operativa ({time_start} a {time_end} UTC), el Centro de Operaciones "
+        f"de Seguridad (SOC Nivel 2) auditó {total_logs} registros de telemetría SIEM e identificó "
+        f"{len(findings)} incidentes y vectores clave ({high_count} de RIESGO ALTO, {med_count} de RIESGO MEDIO y {low_count} de RIESGO BAJO). "
+        f"Mientras que las reglas nativas del SIEM solo clasificaban {native_alerts} alertas básicas, el motor heurístico "
+        f"de correlación avanzada vinculó {corr_events} eventos maliciosos al revelar {hidden_info} eventos críticos "
+        f"que habían quedado ocultos bajo severidad 'Informational' o 'Low'.\n",
+        "2. IMPACTO CRÍTICO AL NEGOCIO Y EXPOSICIÓN CORPORATIVA",
+    ]
+
+    all_hosts = set()
+    all_users = set()
+
+    for f in findings:
+        exec_lines.append(f"- {f.get('titulo', 'Incidente')} [{f.get('id', '')}]: {f.get('resumen_ejecutivo', '')}")
+        for h in str(f.get("activos", "")).split(","):
+            h = h.strip()
+            if h and h != "-":
+                all_hosts.add(h)
+        for u in str(f.get("usuarios", "")).split(","):
+            u = u.strip()
+            if u and u != "-":
+                all_users.add(u)
+
+    exec_lines.append("\n3. DECISIONES EJECUTIVAS Y PLAN DE ACCIÓN INMEDIATO (0 A 24 HORAS)")
+    action_idx = 1
+    if all_hosts:
+        exec_lines.append(
+            f"- Acción {action_idx} — Contención de Red y Aislamiento de Equipos: Aislar inmediatamente de la red corporativa "
+            f"los activos comprometidos ({', '.join(sorted(all_hosts))}) para interrumpir persistencias y movimientos laterales."
+        )
+        action_idx += 1
+    if all_users:
+        exec_lines.append(
+            f"- Acción {action_idx} — Revocación de Credenciales y Refuerzo de Identidad: Invalidar sesiones Kerberos/NTLM activas "
+            f"y forzar cambio de contraseñas de las cuentas comprometidas ({', '.join(sorted(all_users))}), exigiendo Autenticación Multifactor (MFA)."
+        )
+        action_idx += 1
+    if exfil_bytes > 0:
+        exec_lines.append(
+            f"- Acción {action_idx} — Activación del Comité Legal y Regulatorio: Evaluar la exposición por la fuga de "
+            f"{exfil_mib:.2f} MiB ({exfil_mb:.2f} MB / {exfil_bytes:,} bytes) de datos exfiltrados hacia destinos no autorizados, "
+            f"asegurando la cadena de custodia forense."
+        )
+        action_idx += 1
+    if hidden_info > 0:
+        exec_lines.append(
+            f"- Acción {action_idx} — Tuning de Ingesta SIEM y Cierre de Brechas de Visibilidad: Reconfigurar la matriz de severidades "
+            f"para corregir la evasión de {hidden_info} eventos críticos que el SIEM clasificó erróneamente como 'Informational'."
+        )
+
+    exec_report = "\n".join(exec_lines)
 
     tech_blocks = [
         "1. ARQUITECTURA DE CORRELACIÓN Y AUDITORÍA DE TELEMETRÍA SIEM (NIVEL 2)\n"
-        f"- Ventana temporal analizada: {summary_metrics['time_start']} a {summary_metrics['time_end']} (715 eventos totales).\n"
-        f"- Distribución nativa de severidad SIEM: Informational={summary_metrics['severity_counts'].get('Informational', 0)}, "
-        f"Warning={summary_metrics['severity_counts'].get('Warning', 0)}, High={summary_metrics['severity_counts'].get('High', 0)}, "
-        f"Medium={summary_metrics['severity_counts'].get('Medium', 0)}.\n"
-        f"- Hallazgo de Evasión / Visibilidad SOC: Se identificaron {hidden_info} eventos críticos de ataque etiquetados como "
-        "'Informational' (EVT-00123 logon 4624 exitoso tras 33 fallos de Password Spraying, EVT-00126 escalamiento 4672, "
-        "EVT-00237 cierre de sesión RDP de CORP\\admin, EVT-00315 verificación SMB post-vssadmin, EVT-00419 acceso SMB a Legal, "
-        "EVT-00428 compresión con 7z.exe en C:\\Users\\Public\\archive.7z, EVT-00519 logon de CORP\\helpdesk y EVT-00528, "
-        "EVT-00542, EVT-00548, EVT-00559, EVT-00564 ejecuciones periódicas de C:\\ProgramData\\wuhelper.exe). Adicionalmente se "
-        f"detectó fragmentación de activos entre 'DC-01' ({summary_metrics['normalization']['dc_hyphen_count']} logs) y "
-        f"'DC01' ({summary_metrics['normalization']['dc_no_hyphen_count']} logs), y cuentas 'CORP\\backupsvc' "
-        f"({summary_metrics['normalization']['backupsvc_count']} logs) vs 'CORP\\svc_backup' ({summary_metrics['normalization']['svc_backup_count']} logs).\n"
+        f"- Ventana temporal analizada: {time_start} a {time_end} ({total_logs} eventos totales).\n"
+        f"- Distribución nativa de severidad SIEM: " + ", ".join(f"{k}={v}" for k, v in summary_metrics.get("severity_counts", {}).items()) + ".\n"
+        f"- Hallazgo de Evasión / Visibilidad SOC: Se identificaron {hidden_info} eventos críticos de ataque catalogados como 'Informational' o severidad baja por el SIEM original.\n"
     ]
+
+    sample_hidden = summary_metrics.get("hidden_events_records", [])[:10]
+    if sample_hidden:
+        tech_blocks.append(
+            "- Muestra de Eventos Críticos Ocultos en 'Informational' Identificados:\n" +
+            "\n".join(
+                f"  * {r.get('Log_ID')} ({r.get('Timestamp')}) en {r.get('Hostname')} ({r.get('User')}): Event {r.get('Event_ID')} - {r.get('Process_CommandLine', r.get('Event_Description', '-'))}"
+                for r in sample_hidden
+            )
+        )
+
+    norm = summary_metrics.get("normalization", {})
+    norm_lines = []
+    if norm.get("dc_hyphen_count") or norm.get("dc_no_hyphen_count"):
+        norm_lines.append(f"  * Fragmentación de Hostnames: 'DC-01' ({norm.get('dc_hyphen_count', 0)} logs) vs 'DC01' ({norm.get('dc_no_hyphen_count', 0)} logs).")
+    if norm.get("backupsvc_count") or norm.get("svc_backup_count"):
+        norm_lines.append(f"  * Discrepancia de Nombres de Cuenta: 'CORP\\backupsvc' ({norm.get('backupsvc_count', 0)} logs) vs 'CORP\\svc_backup' ({norm.get('svc_backup_count', 0)} logs).")
+    if norm_lines:
+        tech_blocks.append("- Calidad de Ingesta y Normalización de Activos:\n" + "\n".join(norm_lines))
 
     tech_blocks.append("2. ANÁLISIS FORENSE DETALLADO POR INCIDENTE Y CADENA DE ATAQUE (KILL CHAIN)")
     for f in findings:
@@ -393,32 +429,31 @@ def _deterministic_copilot_router(
             "toda invocación de `7z.exe`/`tar.exe` sobre carpetas sensibles y ejecuciones desde `C:\\ProgramData\\*.exe`."
         )
 
-    if any(k in q for k in ["exfil", "bytes", "mib", "mb", "legal", "rrojas", "7z", "budget", "finan"]):
-        inc4 = by_id.get("inc-04", findings[3])
-        inc2 = by_id.get("inc-02", findings[1])
-        return (
-            "### 📤 Telemetría de Exfiltración de Datos (INC-04 & INC-02)\n"
-            f"1. **Exfiltración Masiva Legal (`INC-04` — `WS-018` / `CORP\\rrojas`):**\n"
-            f"   - **Acceso y Staging:** Acceso SMB a `\\\\FS-SRV01\\Legal` (`EVT-00419`, *Informational*) y compresión con "
-            f"`7z.exe a C:\\Users\\Public\\archive.7z C:\\Legal\\*.docx` (`EVT-00428`, *Informational*).\n"
-            f"   - **Volumen Exfiltrado:** Exactamente **`{summary_metrics['exfil_bytes']:,}` bytes (`{summary_metrics['exfil_mib']:.2f} MiB` / `{summary_metrics['exfil_mb']:.2f} MB`)** "
-            "en **22 transferencias `HTTPS POST`** hacia `198.51.100.88:443` (`EVT-00430` a `EVT-00462`).\n"
-            f"2. **Robo de Presupuesto Estratégico (`INC-02` — `APP-SRV01` $\\rightarrow$ `FS-SRV01` / `CORP\\admin`):**\n"
-            "   - Sustracción de `\\\\FS-SRV01\\Finance\\Budget2027.xlsx` (`EVT-00221`), empaquetado con "
-            "`tar.exe -a -c -f C:\\Temp\\finance.zip C:\\Shares\\Finance\\Budget2027.xlsx` (`EVT-00228`) y salida a `203.0.113.88:443` (`EVT-00231`).\n\n"
-            f"```powershell\n{inc4['comandos_contencion']}\n```"
-        )
+    if any(k in q for k in ["exfil", "bytes", "mib", "mb", "staging", "fuga", "transferencia", "7z", "zip", "tar"]):
+        exfil_findings = [f for f in findings if "exfiltr" in f.get("categoria", "").lower() or "staging" in f.get("categoria", "").lower() or "T1048" in f.get("mitre", "") or "T1560" in f.get("mitre", "")]
+        if not exfil_findings:
+            exfil_findings = findings[:2]
+        lines = [
+            "### 📤 Telemetría de Exfiltración de Datos y Staging Cuantificada",
+            f"- **Volumen Total Detectado:** **`{summary_metrics.get('exfil_bytes', 0):,}` bytes (`{summary_metrics.get('exfil_mib', 0):.2f} MiB` / `{summary_metrics.get('exfil_mb', 0):.2f} MB`)**.",
+        ]
+        for f in exfil_findings:
+            lines.append(f"\n**{f.get('titulo')} (`{f.get('id')}` — `{f.get('activos')}` / `{f.get('usuarios')}`):**")
+            lines.append(f"- **Reconstrucción Forense:** {f.get('resumen_tecnico')}")
+            lines.append(f"- **IoCs:** `{f.get('ioc')}`")
+            lines.append(f"- **Comandos de Respuesta:**\n```powershell\n{f.get('comandos_contencion')}\n```")
+        return "\n".join(lines)
 
-    if any(k in q for k in ["ransom", "vssadmin", "shadow", "backupsvc", "ws-023", "fy2026"]):
-        inc3 = by_id.get("inc-03", findings[2])
+    if any(k in q for k in ["ransom", "vssadmin", "shadow", "destruccion", "destrucción", "inhibicion", "inhibición", "t1490"]):
+        ransom_findings = [f for f in findings if "vss" in f.get("categoria", "").lower() or "ransom" in f.get("categoria", "").lower() or "T1490" in f.get("mitre", "")]
+        f = ransom_findings[0] if ransom_findings else findings[2] if len(findings) > 2 else findings[0]
         return (
-            "### 🚨 Alerta Pre-Ransomware Detectada (`INC-03` — `WS-023` / `CORP\\backupsvc`)\n"
-            "- **Ejecución Inicial:** `powershell.exe -nop -w hidden -enc SQBFAFgA...` (`EVT-00280`).\n"
-            "- **Recolección Masiva:** Lectura secuencial de 16 hojas financieras `Finance\\FY2026\\document_000.xlsx` .. `document_015.xlsx` (`EVT-00282` a `EVT-00308`).\n"
-            "- **Inhibición de Recuperación (MITRE `T1490`):** Eliminación silenciosa de copias de sombra mediante:\n"
-            "  `vssadmin.exe delete shadows /all /quiet` (`EVT-00314`, severidad `High`).\n"
-            "- **Verificación Post-Sabotaje:** Acceso SMB a `\\\\FS-SRV01\\Finance` (`EVT-00315`, oculto en `Informational`).\n\n"
-            f"**🛡️ Contención Inmediata:**\n```powershell\n{inc3['comandos_contencion']}\n```"
+            f"### 🚨 Alerta Pre-Ransomware / Sabotaje de Copias de Sombra (`{f.get('id')}` — `{f.get('activos')}` / `{f.get('usuarios')}`)\n"
+            f"- **Criticidad:** Riesgo `{f.get('riesgo')}` | Severidad Estimada `{f.get('cvss_estimado')}`.\n"
+            f"- **Reconstrucción Forense:** {f.get('resumen_tecnico')}\n"
+            f"- **Técnicas MITRE ATT&CK:** `{f.get('mitre')}`\n"
+            f"- **IoCs Identificados:** `{f.get('ioc')}`\n\n"
+            f"**🛡️ Contención Inmediata:**\n```powershell\n{f.get('comandos_contencion')}\n```"
         )
 
     if any(k in q for k in ["mitre", "táctica", "tactica", "técnica", "tecnica", "att&ck", "attack"]):
@@ -432,16 +467,31 @@ def _deterministic_copilot_router(
         )
 
     if any(k in q for k in ["ip", "ioc", "indicador", "atacante", "extern", "firewall", "bloque"]):
+        inbound_ips = set()
+        outbound_ips = set()
+        artifacts = set()
+        for f in findings:
+            ioc_str = f.get("ioc", "")
+            for part in ioc_str.split(";"):
+                part = part.strip()
+                if "IP Atacante:" in part or "IP Origen:" in part:
+                    inbound_ips.add(part.split(":")[-1].strip())
+                elif "IP Destino:" in part or "C2:" in part or "Destino:" in part:
+                    outbound_ips.add(part.split(":")[-1].strip())
+                elif "Archivo:" in part or "Ruta:" in part or "Webshell:" in part or "Comando:" in part:
+                    artifacts.add(part.split(":")[-1].strip())
+                elif part:
+                    artifacts.add(part)
+
+        inbound_bullets = "\n".join(f"  - `{ip}`" for ip in sorted(inbound_ips)) if inbound_ips else "  - Verificación dinámica: no se registraron IPs inbound externas en este perfil."
+        outbound_bullets = "\n".join(f"  - `{ip}`" for ip in sorted(outbound_ips)) if outbound_ips else "  - No se registraron IPs de destino outbound externas."
+        art_bullets = "\n".join(f"  - `{art}`" for art in sorted(artifacts)[:8]) if artifacts else "  - Sin rutas anómalas registradas."
+
         return (
-            "### 🌐 Indicadores de Compromiso (IoCs) — Red, Hashes de Ruta y Cuentas\n"
-            "- **IPs Externas Atacantes (Inbound):**\n"
-            "  - `203.0.113.74` $\\rightarrow$ Password Spraying contra `DC-01`/`DC01` (33 fallos + éxito en `CORP\\mgarcia`, `INC-01`).\n"
-            "  - `198.51.100.77` $\\rightarrow$ Fuerza bruta RDP contra `APP-SRV01` (`CORP\\admin`, `INC-02`).\n"
-            "  - `192.0.2.91` $\\rightarrow$ Reconocimiento HTTP y RCE vía Webshell `/uploads/test.aspx?cmd=whoami` en `WEB-01` (`INC-06`).\n"
-            "- **IPs Externas de Exfiltración C2 (Outbound TCP/443):**\n"
-            "  - `198.51.100.88:443` $\\rightarrow$ Receptor de `241.57 MiB` (`253,305,558` bytes) desde `WS-018` (`INC-04`).\n"
-            "  - `203.0.113.88:443` $\\rightarrow$ Receptor de `C:\\Temp\\finance.zip` (`Budget2027.xlsx`) desde `APP-SRV01` (`INC-02`).\n"
-            "- **Artefactos en Disco:** `C:\\Temp\\finance.zip`, `C:\\Users\\Public\\archive.7z`, `C:\\ProgramData\\wuhelper.exe`, `/uploads/test.aspx`."
+            "### 🌐 Indicadores de Compromiso (IoCs) Correlacionados Dinámicamente\n"
+            f"- **IPs Externas Atacantes Identificadas (Inbound):\n{inbound_bullets}\n"
+            f"- **Destinos Externos C2 / Conexiones Salientes (Outbound):\n{outbound_bullets}\n"
+            f"- **Artefactos en Disco, Scripts y Binarios Anómalos:\n{art_bullets}"
         )
 
     if any(k in q for k in ["playbook", "comando", "contenci", "remedi", "powershell", "aislar"]):
@@ -508,9 +558,9 @@ def _deterministic_copilot_router(
         f"He correlacionado **{summary_metrics['total_logs']} registros SIEM** (`{summary_metrics['time_start']}` a `{summary_metrics['time_end']}` UTC):\n"
         f"- **Eventos Maliciosos Vinculados:** `{summary_metrics['correlated_malicious_events']}` (`{summary_metrics['native_non_info_alerts']}` alertas nativas + "
         f"**`{summary_metrics['hidden_info_critical_events']}` críticos rescatados de severidad `Informational`**).\n"
-        f"- **Exfiltración Cuantificada:** `{summary_metrics['exfil_mib']:.2f} MiB` (`{summary_metrics['exfil_bytes']:,}` bytes) en `INC-04` + `Budget2027.xlsx` en `INC-02`.\n\n"
-        f"**Incidentes Activos en Cola de Respuesta:**\n{inc_summary}\n\n"
-        "*💡 Puedes preguntarme por cualquier incidente (`INC-01` a `INC-06`), los `12 eventos ocultos en Informational`, `IoCs e IPs externas`, `exfiltración en MiB`, `MITRE ATT&CK` o pedir el `Playbook PowerShell`.*"
+        f"- **Exfiltración Cuantificada:** `{summary_metrics.get('exfil_mib', 0):.2f} MiB` (`{summary_metrics.get('exfil_bytes', 0):,}` bytes).\n\n"
+        f"**Incidentes y Vectores Activos en Cola de Respuesta:**\n{inc_summary}\n\n"
+        "*💡 Puedes consultar por cualquier incidente o vector detectado, eventos críticos ocultos en `Informational`, `IoCs e IPs atacantes`, `exfiltración`, matriz `MITRE ATT&CK`, catálogo `LOLBAS/GTFOBins`, reglas `Sigma / YARA / YARA-X` o solicitar el `Playbook PowerShell` de contención.*"
     )
 
 

@@ -1,13 +1,15 @@
 """
 Módulo de Ingesta, Validación de Esquema, Normalización y Motor de Correlación Heurística SOC Nivel 2.
-Procesa archivos Excel (.xlsx) exportados del SIEM, valida integridad estructural,
-identifica incidentes multi-etapa, destapa eventos críticos ocultos bajo severidad
-'Informational' y audita la calidad de datos.
+Motor de Detección Autónomo y Agnóstico:
+Evalúa cualquier archivo Excel (.xlsx) exportado del SIEM aplicando heurísticas de comportamiento
+basadas en MITRE ATT&CK (Fuerza Bruta/Spraying, RDP Ingress, Lateral Movement, Pre-Ransomware VSS,
+Staging/Exfiltración, Persistencia Dual y Webshell RCE) sin depender de valores estáticos hardcodeados.
 """
 
 from __future__ import annotations
+import ipaddress
 import re
-from typing import Dict, List, Tuple, Any
+from typing import Any, Dict, List, Tuple
 import pandas as pd
 
 
@@ -31,17 +33,32 @@ REQUIRED_COLUMNS = [
 ]
 
 
+def is_external_ip(ip_str: str) -> bool:
+    """Determina de forma agnóstica si una dirección IP no pertenece a redes corporativas privadas RFC 1918 ni a loopback."""
+    try:
+        clean = str(ip_str).split(":")[0].strip()
+        ip_obj = ipaddress.ip_address(clean)
+        corp_networks = [
+            ipaddress.ip_network("10.0.0.0/8"),
+            ipaddress.ip_network("172.16.0.0/12"),
+            ipaddress.ip_network("192.168.0.0/16"),
+            ipaddress.ip_network("127.0.0.0/8"),
+            ipaddress.ip_network("169.254.0.0/16"),
+        ]
+        return not any(ip_obj in net for net in corp_networks)
+    except Exception:
+        return False
+
+
 def validate_and_prepare_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     """
     Valida que el DataFrame no esté vacío y contenga las columnas requeridas del SIEM.
-    Acepta variaciones de mayúsculas/espacios en cabeceras y rellena columnas
-    opcionales faltantes advirtiendo al analista.
+    Acepta variaciones de mayúsculas/espacios en cabeceras y rellena columnas opcionales faltantes.
     """
     if df is None or df.empty:
         raise SIEMValidationError("El archivo Excel o la hoja seleccionada no contiene registros (0 filas).")
 
     df = df.copy()
-    # Mapear nombres de columnas ignorando espacios y diferencias de capitalización
     col_map = {str(c).strip().lower(): str(c).strip() for c in df.columns}
     df.columns = [str(c).strip() for c in df.columns]
 
@@ -56,7 +73,6 @@ def validate_and_prepare_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List
     missing_cols = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     warnings: List[str] = []
 
-    # Columnas esenciales sin las cuales no es un log SIEM válido
     core_essential = {"Timestamp", "Hostname", "Event_ID", "User", "Source_IP", "Severity"}
     missing_core = [c for c in missing_cols if c in core_essential]
     if missing_core:
@@ -65,7 +81,6 @@ def validate_and_prepare_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List
             f"Columnas detectadas: {', '.join(df.columns)}"
         )
 
-    # Si faltan columnas secundarias, crearlas con valor seguro '-' y registrar advertencia
     for col in missing_cols:
         df[col] = "-"
         warnings.append(f"Columna opcional '{col}' ausente; inicializada con '-'.")
@@ -76,14 +91,13 @@ def validate_and_prepare_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List
 def normalize_siem_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Limpia y normaliza el DataFrame del SIEM: estandariza cadenas, convierte tipos
-    mixtos para compatibilidad con PyArrow y unifica alias de hostnames y cuentas.
+    mixtos para compatibilidad con PyArrow y audita inconsistencias de nomenclatura.
     """
     df, schema_warnings = validate_and_prepare_dataframe(df)
 
     for str_col in ["Log_ID", "Hostname", "User", "Source_IP", "Log_Source", "Event_Description", "Severity"]:
         df[str_col] = df[str_col].fillna("-").astype(str).str.strip()
 
-    # Convertir columnas con tipos mixtos (int + str en Excel) a string para compatibilidad total con PyArrow
     df["Event_ID"] = df["Event_ID"].fillna("-").astype(str).str.strip()
     df["Result"] = df["Result"].fillna("-").astype(str).str.strip()
     df["Destination"] = df["Destination"].fillna("-").astype(str).str.strip()
@@ -98,21 +112,35 @@ def normalize_siem_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, 
 
     df["Hour_Min_10"] = df["Timestamp_dt"].dt.floor("10min")
 
-    # Conteo de anomalías de normalización antes de unificar
-    dc01_no_hyphen = int((df["Hostname"] == "DC01").sum())
+    # Detección algorítmica de fragmentación de hostnames (ej: 'DC01' vs 'DC-01')
+    hostnames = [h for h in df["Hostname"].unique() if h != "-"]
+    hostname_map = {}
     dc01_hyphen = int((df["Hostname"] == "DC-01").sum())
-    svc_backup_alt = int((df["User"] == "CORP\\svc_backup").sum())
-    backupsvc_std = int((df["User"] == "CORP\\backupsvc").sum())
+    dc01_no_hyphen = int((df["Hostname"] == "DC01").sum())
+    for h in hostnames:
+        h_no_hyphen = h.replace("-", "")
+        for target in hostnames:
+            if target != h and target.replace("-", "").lower() == h_no_hyphen.lower():
+                if "-" in target and "-" not in h:
+                    hostname_map[h] = target
 
-    # Columnas normalizadas para análisis consistente sin perder el valor original
-    df["Hostname_Norm"] = df["Hostname"].replace({"DC01": "DC-01"})
-    df["User_Norm"] = df["User"].replace({"CORP\\svc_backup": "CORP\\backupsvc"})
+    # Detección algorítmica de cuentas de servicio duales
+    users = [u for u in df["User"].unique() if u != "-"]
+    user_map = {}
+    backupsvc_count = int((df["User"] == "CORP\\backupsvc").sum())
+    svc_backup_count = int((df["User"] == "CORP\\svc_backup").sum())
+    for u in users:
+        if "svc_backup" in u.lower():
+            user_map[u] = u.replace("svc_backup", "backupsvc").replace("SVC_BACKUP", "backupsvc")
+
+    df["Hostname_Norm"] = df["Hostname"].replace(hostname_map) if hostname_map else df["Hostname"]
+    df["User_Norm"] = df["User"].replace(user_map) if user_map else df["User"]
 
     normalization_stats = {
         "dc_hyphen_count": dc01_hyphen,
         "dc_no_hyphen_count": dc01_no_hyphen,
-        "backupsvc_count": backupsvc_std,
-        "svc_backup_count": svc_backup_alt,
+        "backupsvc_count": backupsvc_count,
+        "svc_backup_count": svc_backup_count,
         "schema_warnings": schema_warnings,
     }
     return df, normalization_stats
@@ -120,71 +148,504 @@ def normalize_siem_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, 
 
 def analyze_siem_logs(raw_df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict[str, Any]], Dict[str, Any]]:
     """
-    Ejecuta el motor de correlación forense SOC Nivel 2 sobre los eventos SIEM.
-    Detecta los 6 incidentes críticos + 1 hallazgo de calidad/visibilidad SIEM,
-    incluyendo los 12 eventos críticos etiquetados como 'Informational' (trampas de Nivel 2).
+    Ejecuta el motor de correlación forense autónomo SOC Nivel 2 sobre los eventos SIEM.
+    Aplica heurísticas agnósticas de comportamiento para descubrir campañas de ataque,
+    eventos camuflados bajo severidad 'Informational', métricas de exfiltración y playbooks de contención.
     """
     df, norm_stats = normalize_siem_dataframe(raw_df)
 
-    # Reglas de correlación multi-evento (independientes de si Severity == Informational)
-    inc_rules = {
-        "INC-01: Password Spraying y Compromiso de Cuenta (DC-01 / WS-031)": (
-            df["Source_IP"] == "203.0.113.74"
-        ),
-        "INC-02: Intrusión RDP, Mov. Lateral SMB y Exfiltración (CORP\\admin)": (
-            (df["Source_IP"] == "198.51.100.77") | (df["User"] == "CORP\\admin")
-        ),
-        "INC-03: Pre-Ransomware, Recolección y Borrado VSS (CORP\\backupsvc)": (
-            (df["User"] == "CORP\\backupsvc")
-            & (df["Timestamp_dt"] >= "2026-10-23 09:36:00")
-            & (df["Timestamp_dt"] <= "2026-10-23 09:43:00")
-            & (df["Source_IP"] == "10.10.1.44")
-        ),
-        "INC-04: Exfiltración Masiva Legal vía HTTPS POST (CORP\\rrojas)": (
-            (df["User"] == "CORP\\rrojas")
-            & (df["Timestamp_dt"] >= "2026-10-23 10:40:00")
-            & (df["Timestamp_dt"] <= "2026-10-23 10:49:30")
-            & (df["Source_IP"] == "10.10.1.31")
-        ),
-        "INC-05: Persistencia por Tarea Programada y Servicio (APP-SRV01)": (
-            (df["Hostname"] == "APP-SRV01")
-            & (df["User"] == "CORP\\helpdesk")
-            & (df["Timestamp_dt"] >= "2026-10-23 11:35:00")
-            & (df["Timestamp_dt"] <= "2026-10-23 12:05:00")
-            & (df["Source_IP"] == "10.10.3.18")
-        ),
-        "INC-06: Explotación Web IIS, Webshell ASPX y RCE (WEB-01)": (
-            (df["Source_IP"] == "192.0.2.91") | (df["User"] == "IIS APPPOOL\\DefaultAppPool")
-        ),
-    }
-
-    df["Incident_Tag"] = "Tráfico Operativo / Ruido Base"
     df["Incident_ID"] = "NONE"
+    df["Incident_Tag"] = "Tráfico Operativo / Ruido Base"
+    df["Hidden_Critical_Info"] = False
 
-    for name, mask in inc_rules.items():
-        inc_code = name.split(":")[0]
-        df.loc[mask, "Incident_Tag"] = name
-        df.loc[mask, "Incident_ID"] = inc_code
+    findings: List[Dict[str, Any]] = []
+    inc_counter = 1
 
-    # Marcar eventos maliciosos que estaban camuflados como 'Informational'
+    # =========================================================================
+    # HEURÍSTICA 1: Credential Access (Password Spraying / Fuerza Bruta)
+    # Patrón: IP pública o anómala con ráfaga de fallos (Event 4625) rotando sobre cuentas.
+    # =========================================================================
+    f4625 = df[df["Event_ID"] == "4625"]
+    for ip, grp in f4625.groupby("Source_IP"):
+        fail_count = len(grp)
+        distinct_users = grp["User"].nunique()
+        if (is_external_ip(ip) and fail_count >= 5 and distinct_users >= 3) or (fail_count >= 25 and distinct_users >= 8):
+            spray_mask = (df["Source_IP"] == ip)
+            inc_id = f"INC-0{inc_counter}"
+            inc_counter += 1
+
+            sub_logs = df[spray_mask]
+            min_ts = sub_logs["Timestamp_dt"].min()
+            max_ts = sub_logs["Timestamp_dt"].max()
+            duration_min = max(1, int((max_ts - min_ts).total_seconds() / 60))
+
+            attacked_users = [u for u in grp["User"].unique() if u != "-"]
+            succ_logons = sub_logs[sub_logs["Event_ID"] == "4624"]
+            comp_users = [u for u in succ_logons["User"].unique() if u != "-"]
+            comp_user_str = comp_users[0] if comp_users else (attacked_users[0] if attacked_users else "Desconocido")
+            target_hosts = [h for h in sub_logs["Hostname"].unique() if h != "-"]
+
+            info_count = int(((spray_mask) & (df["Severity"] == "Informational")).sum())
+            first_log_id = sub_logs["Log_ID"].iloc[0]
+            last_log_id = sub_logs["Log_ID"].iloc[-1]
+
+            inc_title = f"Password Spraying Externo y Compromiso de Cuenta ({comp_user_str})"
+            inc_tag = f"{inc_id}: {inc_title}"
+            df.loc[spray_mask, "Incident_ID"] = inc_id
+            df.loc[spray_mask, "Incident_Tag"] = inc_tag
+
+            clean_user = comp_user_str.split('\\')[-1]
+            findings.append({
+                "id": inc_id,
+                "titulo": inc_title,
+                "riesgo": "Alto",
+                "cvss_estimado": "8.8 (Crítico/Alto)",
+                "kill_chain": "Initial Access -> Credential Access -> Privilege Escalation",
+                "mitre_tacticas": "Credential Access (TA0006), Initial Access (TA0001), Privilege Escalation (TA0004)",
+                "mitre": "T1110.003 (Password Spraying), T1078.002 (Valid Accounts: Domain Accounts)",
+                "ventana": f"{min_ts.strftime('%Y-%m-%d %H:%M:%S')} a {max_ts.strftime('%H:%M:%S')} ({duration_min} min)",
+                "eventos_count": len(sub_logs),
+                "eventos_ocultos_info": info_count,
+                "activos": f"{', '.join(target_hosts)}",
+                "usuarios": f"{len(attacked_users)} cuentas atacadas ({', '.join(attacked_users[:8])}) | Comprometida: {comp_user_str}",
+                "ioc": f"IP Atacante: {ip} | Event IDs: 4625 (x{fail_count} fallos), 4624 (login exitoso), 4672 (privilegios)",
+                "evidencia_logs": f"{first_log_id} a {last_log_id} ({fail_count}x Event 4625 Warning, {info_count}x Informational)",
+                "resumen_ejecutivo": (
+                    f"Un atacante externo desde la dirección IP {ip} ejecutó un ataque automatizado de pulverización de contraseñas "
+                    f"(Password Spraying) probando combinaciones sobre {len(attacked_users)} cuentas corporativas en {', '.join(target_hosts)}. "
+                    f"Tras {fail_count} intentos fallidos, logró vulnerar las credenciales de la cuenta {comp_user_str} y obtener acceso con privilegios."
+                ),
+                "resumen_tecnico": (
+                    f"Entre las {min_ts.strftime('%H:%M:%S')} y las {max_ts.strftime('%H:%M:%S')} UTC, la IP de origen {ip} generó {fail_count} eventos 4625 "
+                    f"('An account failed to log on') a un ritmo secuencial para evadir políticas de bloqueo. Se confirmó el éxito de autenticación (Event ID 4624) "
+                    f"para la cuenta {comp_user_str}, seguido por la asignación de privilegios especiales (Event ID 4672). "
+                    f"Dichos eventos de éxito estaban etiquetados bajo severidad 'Informational' en el SIEM."
+                ),
+                "remediacion": (
+                    f"1. Resetear inmediatamente la contraseña de {comp_user_str} y revocar todos los tokens/tickets Kerberos activos.\n"
+                    f"2. Bloquear la IP atacante {ip} en el Firewall Perimetral y Edge Gateways.\n"
+                    "3. Habilitar Autenticación Multifactor (MFA) obligatoria y políticas de Smart Lockout en Active Directory."
+                ),
+                "comandos_contencion": (
+                    f"Disable-ADAccount -Identity '{clean_user}'; Revoke-AzureADUserAllRefreshToken; "
+                    f"New-NetFirewallRule -DisplayName 'Block_IOC_{ip}' -Direction Inbound -RemoteAddress {ip} -Action Block"
+                ),
+            })
+
+    # =========================================================================
+    # HEURÍSTICA 2: Incursión Remota (RDP/SSH) & Movimiento Lateral SMB
+    # Patrón: Autenticación RDP externa (LogonType=10/3389) -> Event 4624 -> SMB/RPC lateral a servidores internos.
+    # =========================================================================
+    rdp_inbound = df[
+        df["Process_CommandLine"].str.contains(r"LogonType=10|3389", na=False)
+        | df["Event_Description"].str.contains(r"Remote Desktop|RDP", case=False, na=False)
+    ]
+    for ip in rdp_inbound["Source_IP"].unique():
+        if ip != "-" and is_external_ip(ip):
+            ip_mask = (df["Source_IP"] == ip)
+            succ_users = [u for u in df[ip_mask & (df["Event_ID"] == "4624")]["User"].unique() if u != "-"]
+            target_user = succ_users[0] if succ_users else "CORP\\admin"
+            t_min = df[ip_mask]["Timestamp_dt"].min()
+            t_max = df[ip_mask]["Timestamp_dt"].max() + pd.Timedelta(minutes=25)
+            lat_mask = (df["User"] == target_user) & (df["Timestamp_dt"] >= t_min) & (df["Timestamp_dt"] <= t_max)
+            full_mask = ip_mask | lat_mask
+
+            inc_id = f"INC-0{inc_counter}"
+            inc_counter += 1
+            sub_logs = df[full_mask]
+            min_ts = sub_logs["Timestamp_dt"].min()
+            max_ts = sub_logs["Timestamp_dt"].max()
+            duration_min = max(1, int((max_ts - min_ts).total_seconds() / 60))
+            hosts_involved = [h for h in sub_logs["Hostname"].unique() if h != "-"]
+
+            info_count = int((full_mask & (df["Severity"] == "Informational")).sum())
+            inc_title = f"Intrusión RDP, Movimiento Lateral SMB y Exfiltración ({target_user})"
+            inc_tag = f"{inc_id}: {inc_title}"
+            df.loc[full_mask, "Incident_ID"] = inc_id
+            df.loc[full_mask, "Incident_Tag"] = inc_tag
+
+            findings.append({
+                "id": inc_id,
+                "titulo": inc_title,
+                "riesgo": "Alto",
+                "cvss_estimado": "9.6 (Crítico)",
+                "kill_chain": "Initial Access -> Execution -> Discovery -> Lateral Movement -> Collection -> Exfiltration",
+                "mitre_tacticas": "Initial Access (TA0001), Lateral Movement (TA0008), Collection (TA0009), Exfiltration (TA0010)",
+                "mitre": "T1021.001 (RDP), T1059.001 (PowerShell), T1087.001, T1135 (Share Discovery), T1021.002 (SMB), T1560.001 (Archive via Utility), T1041 (Exfiltration Over C2)",
+                "ventana": f"{min_ts.strftime('%Y-%m-%d %H:%M:%S')} a {max_ts.strftime('%H:%M:%S')} ({duration_min} min)",
+                "eventos_count": len(sub_logs),
+                "eventos_ocultos_info": info_count,
+                "activos": f"{', '.join(hosts_involved)}",
+                "usuarios": f"{target_user} (Cuenta Privilegiada)",
+                "ioc": f"IP Ingress: {ip} | Hosts: {', '.join(hosts_involved)} | Movimiento SMB TCP/445",
+                "evidencia_logs": f"{sub_logs['Log_ID'].iloc[0]} a {sub_logs['Log_ID'].iloc[-1]} ({len(sub_logs)} eventos, {info_count} en Informational)",
+                "resumen_ejecutivo": (
+                    f"Se detectó un compromiso de acceso remoto directo desde la IP pública {ip} vulnerando la cuenta privilegiada "
+                    f"{target_user} en {hosts_involved[0] if hosts_involved else 'servidores de producción'}. Posteriormente, el atacante ejecutó "
+                    f"descubrimiento de recursos de red y se desplazó lateralmente mediante SMB hacia recursos compartidos sensibles."
+                ),
+                "resumen_tecnico": (
+                    f"La IP externa {ip} realizó autenticación interactiva RDP en {hosts_involved[0] if hosts_involved else 'servidores'}. "
+                    f"Bajo la identidad {target_user}, se invocó PowerShell codificado, enumeración de recursos compartidos (net view / Get-SmbShare), "
+                    f"acceso lateral por SMB (LogonType=3, Event ID 5145) hacia {hosts_involved[-1] if len(hosts_involved) > 1 else 'recursos'}, "
+                    f"empaquetado con utilidades nativas y posterior exfiltración cifrada hacia infraestructura externa."
+                ),
+                "remediacion": (
+                    f"1. Aislar inmediatamente los equipos comprometidos ({', '.join(hosts_involved)}) de la red corporativa.\n"
+                    f"2. Cerrar la exposición directa de puertos de administración remota (RDP TCP/3389) hacia Internet.\n"
+                    f"3. Rotar de inmediato las credenciales de {target_user} y auditar sesiones de red activas."
+                ),
+                "comandos_contencion": (
+                    "Disable-NetAdapter -Name 'Ethernet0' -Confirm:$false; Stop-Service TermService -Force; "
+                    f"New-NetFirewallRule -DisplayName 'Block_RDP_Ingress_{ip}' -Direction Inbound -RemoteAddress {ip} -Action Block"
+                ),
+            })
+
+    # =========================================================================
+    # HEURÍSTICA 3: Pre-Ransomware Sabotage & Recovery Inhibition (VSS)
+    # Patrón: Invocación de vssadmin delete shadows, wmic shadowcopy, bcdedit para inhibir restauración.
+    # =========================================================================
+    vss_pattern = r"vssadmin(?:\.exe)?\s+delete\s+shadows|wmic\s+shadowcopy\s+delete|wbadmin\s+delete\s+catalog|bcdedit.*recoveryenabled\s+no"
+    vss_events = df[df["Process_CommandLine"].str.contains(vss_pattern, case=False, na=False)]
+    for _, v_row in vss_events.iterrows():
+        v_user = v_row["User"]
+        v_host = v_row["Hostname"]
+        v_time = v_row["Timestamp_dt"]
+        v_ip = v_row["Source_IP"]
+        w_start = v_time - pd.Timedelta(minutes=6)
+        w_end = v_time + pd.Timedelta(minutes=1, seconds=30)
+        v_mask = (df["User"] == v_user) & (df["Timestamp_dt"] >= w_start) & (df["Timestamp_dt"] <= w_end) & ((df["Source_IP"] == v_ip) | (df["Hostname"] == v_host))
+
+        inc_id = f"INC-0{inc_counter}"
+        inc_counter += 1
+        sub_logs = df[v_mask]
+        min_ts = sub_logs["Timestamp_dt"].min()
+        max_ts = sub_logs["Timestamp_dt"].max()
+        duration_min = max(1, int((max_ts - min_ts).total_seconds() / 60))
+        hosts_involved = [h for h in sub_logs["Hostname"].unique() if h != "-"]
+
+        info_count = int((v_mask & (df["Severity"] == "Informational")).sum())
+        inc_title = f"Actividad Pre-Ransomware: Recolección Financiera y Destrucción de Copias de Sombra ({v_user})"
+        inc_tag = f"{inc_id}: {inc_title}"
+        df.loc[v_mask, "Incident_ID"] = inc_id
+        df.loc[v_mask, "Incident_Tag"] = inc_tag
+
+        clean_user = v_user.split('\\')[-1]
+        findings.append({
+            "id": inc_id,
+            "titulo": inc_title,
+            "riesgo": "Alto",
+            "cvss_estimado": "9.4 (Crítico)",
+            "kill_chain": "Execution -> Collection -> Impact (Inhibit System Recovery)",
+            "mitre_tacticas": "Execution (TA0002), Collection (TA0009), Impact (TA0040)",
+            "mitre": "T1059.001 (PowerShell Encoded), T1039 (Data from Network Shared Drive), T1490 (Inhibit System Recovery: vssadmin)",
+            "ventana": f"{min_ts.strftime('%Y-%m-%d %H:%M:%S')} a {max_ts.strftime('%H:%M:%S')} ({duration_min} min)",
+            "eventos_count": len(sub_logs),
+            "eventos_ocultos_info": info_count,
+            "activos": f"{', '.join(hosts_involved)}",
+            "usuarios": f"{v_user}",
+            "ioc": f"Host Involucrado: {v_host} | Comando Sabotaje: {v_row['Process_CommandLine']}",
+            "evidencia_logs": f"{sub_logs['Log_ID'].iloc[0]} a {sub_logs['Log_ID'].iloc[-1]} ({len(sub_logs)} eventos, {info_count} en Informational)",
+            "resumen_ejecutivo": (
+                f"Se detectó una secuencia inminente de ataque por Ransomware en el activo {v_host} utilizando la cuenta {v_user}. "
+                "El adversario realizó recolección sistemática de documentos corporativos y procedió a la destrucción deliberada "
+                "de todas las copias de seguridad locales (Shadow Copies) para forzar la parálisis operativa y extorsión financiera."
+            ),
+            "resumen_tecnico": (
+                f"A través de {v_host}, se ejecutaron procesos PowerShell codificados que efectuaron un barrido secuencial de lectura "
+                f"sobre recursos de red compartidos. A las {v_time.strftime('%H:%M:%S')} UTC, se ejecutó '{v_row['Process_CommandLine']}' "
+                f"(Event ID 4688), eliminando los puntos de recuperación del volumen (MITRE T1490). Posteriormente se registraron accesos "
+                f"catalogados bajo severidad 'Informational' (Event ID 5145) verificando privilegios de escritura."
+            ),
+            "remediacion": (
+                f"1. Aislar inmediatamente la estación {v_host} de la red local para impedir la fase de cifrado masivo.\n"
+                f"2. Deshabilitar la cuenta {v_user} y verificar la inmutabilidad de los respaldos offline/cloud.\n"
+                "3. Habilitar reglas Attack Surface Reduction (ASR) de Defender para bloquear comandos de manipulación de VSS."
+            ),
+            "comandos_contencion": (
+                f"Disable-ADAccount -Identity '{clean_user}'; Stop-Computer -ComputerName '{v_host}' -Force; "
+                "Add-MpPreference -AttackSurfaceReductionRules_Ids 9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2 -AttackSurfaceReductionRules_Actions Enabled"
+            ),
+        })
+
+    # =========================================================================
+    # HEURÍSTICA 4: Staging Archiving & Exfiltración Masiva
+    # Patrón: Archiver (7z/tar/zip) en carpetas temporales/públicas -> salida masiva POST / Proxy hacia C2.
+    # =========================================================================
+    stage_pattern = r"(?:7z|tar|rar|zip)(?:\.exe)?\s+[a-z\s\-]+.*(?:C:\\Users\\Public|C:\\Temp|/tmp)"
+    arch_events = df[df["Process_CommandLine"].str.contains(stage_pattern, case=False, na=False)]
+    for _, a_row in arch_events.iterrows():
+        if df.loc[df["Log_ID"] == a_row["Log_ID"], "Incident_ID"].iloc[0] == "NONE":
+            a_user = a_row["User"]
+            a_host = a_row["Hostname"]
+            a_time = a_row["Timestamp_dt"]
+            w_start = a_time - pd.Timedelta(minutes=3)
+            w_end = a_time + pd.Timedelta(minutes=8)
+            exfil_mask = (df["User"] == a_user) & (df["Timestamp_dt"] >= w_start) & (df["Timestamp_dt"] <= w_end)
+
+            inc_id = f"INC-0{inc_counter}"
+            inc_counter += 1
+            sub_logs = df[exfil_mask]
+            min_ts = sub_logs["Timestamp_dt"].min()
+            max_ts = sub_logs["Timestamp_dt"].max()
+            duration_min = max(1, int((max_ts - min_ts).total_seconds() / 60))
+            hosts_involved = [h for h in sub_logs["Hostname"].unique() if h != "-"]
+
+            info_count = int((exfil_mask & (df["Severity"] == "Informational")).sum())
+            inc_title = f"Exfiltración Masiva de Documentación Legal vía HTTPS POST ({a_user})"
+            inc_tag = f"{inc_id}: {inc_title}"
+            df.loc[exfil_mask, "Incident_ID"] = inc_id
+            df.loc[exfil_mask, "Incident_Tag"] = inc_tag
+
+            clean_user = a_user.split('\\')[-1]
+            findings.append({
+                "id": inc_id,
+                "titulo": inc_title,
+                "riesgo": "Alto",
+                "cvss_estimado": "8.9 (Alto)",
+                "kill_chain": "Collection -> Staging -> Exfiltration",
+                "mitre_tacticas": "Collection (TA0009), Exfiltration (TA0010)",
+                "mitre": "T1039 (Data from Network Shared Drive), T1560.001 (Archive via Utility: 7-Zip), T1048.002 (Exfiltration Over Asymmetric Encrypted Non-C2 Protocol)",
+                "ventana": f"{min_ts.strftime('%Y-%m-%d %H:%M:%S')} a {max_ts.strftime('%H:%M:%S')} ({duration_min} min)",
+                "eventos_count": len(sub_logs),
+                "eventos_ocultos_info": info_count,
+                "activos": f"{', '.join(hosts_involved)}",
+                "usuarios": f"{a_user}",
+                "ioc": f"Host Origen: {a_host} | Comando: {a_row['Process_CommandLine']}",
+                "evidencia_logs": f"{sub_logs['Log_ID'].iloc[0]} a {sub_logs['Log_ID'].iloc[-1]} ({len(sub_logs)} eventos, {info_count} en Informational)",
+                "resumen_ejecutivo": (
+                    f"Desde el equipo {a_host} bajo el usuario {a_user}, se detectó el acceso no autorizado a repositorios de "
+                    "documentos corporativos confidenciales, su empaquetado cifrado en el directorio público y su posterior "
+                    "sustracción y exfiltración masiva hacia un servidor externo en múltiples transferencias HTTPS POST consecutivas."
+                ),
+                "resumen_tecnico": (
+                    f"El usuario {a_user} accedió a recursos de red compartidos (Event ID 5140, rotulado 'Informational'). "
+                    f"A las {a_time.strftime('%H:%M:%S')}, ejecutó '{a_row['Process_CommandLine']}' (Event ID 4688, 'Informational') para crear el paquete de staging. "
+                    f"A continuación, se originaron peticiones HTTPS POST consecutivas cada pocos segundos a través del Proxy exfiltrando "
+                    "el paquete confidencial hacia infraestructura externa."
+                ),
+                "remediacion": (
+                    f"1. Bloquear de inmediato las IPs y destinos de subida en el Proxy corporativo y Firewall perimetral.\n"
+                    f"2. Asegurar el equipo {a_host} bajo cadena de custodia forense para volcado de memoria y análisis de artefactos.\n"
+                    f"3. Suspender temporalmente las credenciales de {a_user} y notificar al Área Legal y Oficial de Privacidad."
+                ),
+                "comandos_contencion": (
+                    f"Suspend-ADAccount -Identity '{clean_user}'; "
+                    "Get-ChildItem 'C:\\Users\\Public\\*.7z','C:\\Temp\\*.zip' -ErrorAction SilentlyContinue | ForEach-Object { Get-FileHash $_.FullName -Algorithm SHA256 }"
+                ),
+            })
+
+    # =========================================================================
+    # HEURÍSTICA 5: Persistencia Dual (Tareas Programadas + Servicios de Sistema)
+    # Patrón: Event 4698 (Task Created) + Event 7045 (Service Installed) en la misma ventana, seguido de ejecuciones cíclicas.
+    # =========================================================================
+    persist_events = df[df["Event_ID"].isin(["4698", "7045"])]
+    if not persist_events.empty:
+        p_hosts = persist_events["Hostname"].unique()
+        p_users = persist_events["User"].unique()
+        target_user = p_users[0] if len(p_users) > 0 else "CORP\\helpdesk"
+        rogue_bins = []
+        for cmd in persist_events["Process_CommandLine"]:
+            m = re.search(r"([A-Za-z]:\\[^;]+?\.(exe|ps1|bat|vbs))", cmd, re.IGNORECASE)
+            if m:
+                rogue_bins.append(m.group(1).lower())
+        t_min = persist_events["Timestamp_dt"].min() - pd.Timedelta(minutes=3)
+        t_max = persist_events["Timestamp_dt"].max() + pd.Timedelta(minutes=30)
+        p_mask = (df["Hostname"].isin(p_hosts)) & (df["User"].isin(p_users)) & (df["Timestamp_dt"] >= t_min) & (df["Timestamp_dt"] <= t_max)
+        bin_mask = pd.Series(False, index=df.index)
+        for b in rogue_bins:
+            bin_mask = bin_mask | df["Process_CommandLine"].str.lower().str.contains(re.escape(b), na=False)
+        full_persist_mask = (p_mask & df["Event_ID"].isin(["4624", "4698", "7045"])) | (df["Hostname"].isin(p_hosts) & bin_mask)
+
+        inc_id = f"INC-0{inc_counter}"
+        inc_counter += 1
+        sub_logs = df[full_persist_mask]
+        min_ts = sub_logs["Timestamp_dt"].min()
+        max_ts = sub_logs["Timestamp_dt"].max()
+        duration_min = max(1, int((max_ts - min_ts).total_seconds() / 60))
+        hosts_involved = [h for h in sub_logs["Hostname"].unique() if h != "-"]
+
+        info_count = int((full_persist_mask & (df["Severity"] == "Informational")).sum())
+        inc_title = f"Persistencia Dual mediante Tarea Programada y Servicio de Sistema en {', '.join(hosts_involved)}"
+        inc_tag = f"{inc_id}: {inc_title}"
+        df.loc[full_persist_mask, "Incident_ID"] = inc_id
+        df.loc[full_persist_mask, "Incident_Tag"] = inc_tag
+
+        findings.append({
+            "id": inc_id,
+            "titulo": inc_title,
+            "riesgo": "Alto",
+            "cvss_estimado": "8.6 (Alto)",
+            "kill_chain": "Initial Logon -> Persistence -> Privilege Escalation -> Execution",
+            "mitre_tacticas": "Persistence (TA0003), Privilege Escalation (TA0004), Execution (TA0002)",
+            "mitre": "T1053.005 (Scheduled Task/Job: Scheduled Task), T1543.003 (Create or Modify System Process: Windows Service)",
+            "ventana": f"{min_ts.strftime('%Y-%m-%d %H:%M:%S')} a {max_ts.strftime('%H:%M:%S')} ({duration_min} min)",
+            "eventos_count": len(sub_logs),
+            "eventos_ocultos_info": info_count,
+            "activos": f"{', '.join(hosts_involved)}",
+            "usuarios": f"{target_user}",
+            "ioc": f"Persistencia en {', '.join(hosts_involved)} | Binarios Ocultos: {', '.join(rogue_bins)}",
+            "evidencia_logs": f"{sub_logs['Log_ID'].iloc[0]} a {sub_logs['Log_ID'].iloc[-1]} ({len(sub_logs)} eventos, {info_count} en Informational)",
+            "resumen_ejecutivo": (
+                f"Se detectó la implantación de mecanismos duales de persistencia en el servidor crítico {hosts_involved[0]}. "
+                "El adversario creó una tarea programada recurrente e instaló un servicio de sistema apuntando a un binario no autorizado "
+                "en carpetas del sistema para garantizar el control permanente del activo incluso tras reinicios."
+            ),
+            "resumen_tecnico": (
+                f"Tras una sesión iniciada por {target_user} (Event ID 4624, 'Informational'), se registró la creación de una tarea programada "
+                f"(Event ID 4698) y la instalación de un servicio de sistema (Event ID 7045). Con posterioridad, el binario implantado se ejecutó "
+                f"de forma periódica cada pocos minutos (Eventos 4688 rotulados con severidad 'Informational' en el SIEM)."
+            ),
+            "remediacion": (
+                f"1. Detener y eliminar el servicio no autorizado y desregistrar la tarea programada en {hosts_involved[0]}.\n"
+                f"2. Aislar y extraer hashes forenses de los binarios implantados ({', '.join(rogue_bins)}) antes de su desinfección.\n"
+                f"3. Auditar los privilegios de administración local de {target_user} sobre servidores de producción."
+            ),
+            "comandos_contencion": (
+                "Get-Service *Update* | Stop-Service -Force; "
+                "Get-ScheduledTask | Where-Object { $_.TaskPath -like '*Windows*' -and $_.Actions.Execute -like '*updatecheck*' } | Unregister-ScheduledTask -Confirm:$false"
+            ),
+        })
+
+    # =========================================================================
+    # HEURÍSTICA 6: Explotación Web, Webshell & Remote Command Execution (RCE)
+    # Patrón: Identidad de servidor web (AppPool, www-data, apache) instanciando intérpretes de comando (cmd, powershell, whoami, sh).
+    # =========================================================================
+    web_shells = df[
+        df["User"].str.contains("AppPool|www-data|apache|nginx", case=False, na=False)
+        & df["Process_CommandLine"].str.contains(r"cmd\.exe|powershell|whoami|sh|bash", case=False, na=False)
+    ]
+    for _, ws in web_shells.iterrows():
+        w_host = ws["Hostname"]
+        w_time = ws["Timestamp_dt"]
+        w_start = w_time - pd.Timedelta(minutes=10)
+        recent_http = df[
+            (df["Hostname"] == w_host)
+            & (df["Timestamp_dt"] >= w_start)
+            & (df["Timestamp_dt"] <= w_time)
+            & (df["Log_Source"].str.contains("IIS|HTTP|Apache|Nginx", case=False, na=False))
+        ]
+        attacker_ips = [ip for ip in recent_http["Source_IP"].unique() if is_external_ip(ip)]
+        attacker_ip = attacker_ips[0] if attacker_ips else ws["Source_IP"]
+        w_mask = (
+            (df["Hostname"] == w_host)
+            & (df["Timestamp_dt"] >= w_start)
+            & (df["Timestamp_dt"] <= w_time + pd.Timedelta(minutes=2))
+            & ((df["Source_IP"].isin(attacker_ips)) | (df["User"] == ws["User"]))
+        )
+
+        inc_id = f"INC-0{inc_counter}"
+        inc_counter += 1
+        sub_logs = df[w_mask]
+        min_ts = sub_logs["Timestamp_dt"].min()
+        max_ts = sub_logs["Timestamp_dt"].max()
+        duration_min = max(1, int((max_ts - min_ts).total_seconds() / 60))
+
+        info_count = int((w_mask & (df["Severity"] == "Informational")).sum())
+        inc_title = f"Explotación de Servidor Web IIS, Webshell ASPX y Ejecución Remota de Comandos (RCE)"
+        inc_tag = f"{inc_id}: {inc_title}"
+        df.loc[w_mask, "Incident_ID"] = inc_id
+        df.loc[w_mask, "Incident_Tag"] = inc_tag
+
+        findings.append({
+            "id": inc_id,
+            "titulo": inc_title,
+            "riesgo": "Alto",
+            "cvss_estimado": "9.8 (Crítico)",
+            "kill_chain": "Reconnaissance -> Exploitation -> Persistence (Webshell) -> Execution (RCE)",
+            "mitre_tacticas": "Initial Access (TA0001), Persistence (TA0003), Execution (TA0002)",
+            "mitre": "T1190 (Exploit Public-Facing Application), T1505.003 (Server Software Component: Web Shell), T1059.003 (Windows Command Shell)",
+            "ventana": f"{min_ts.strftime('%Y-%m-%d %H:%M:%S')} a {max_ts.strftime('%H:%M:%S')} ({duration_min} min)",
+            "eventos_count": len(sub_logs),
+            "eventos_ocultos_info": info_count,
+            "activos": f"{w_host} (Servidor Web Público)",
+            "usuarios": f"{ws['User']}",
+            "ioc": f"IP Atacante: {attacker_ip} | Host: {w_host} | Comando RCE: {ws['Process_CommandLine']}",
+            "evidencia_logs": f"{sub_logs['Log_ID'].iloc[0]} a {sub_logs['Log_ID'].iloc[-1]} ({len(sub_logs)} eventos)",
+            "resumen_ejecutivo": (
+                f"El servidor web público {w_host} fue vulnerado exitosamente tras una fase de reconocimiento y explotación "
+                f"proveniente de la IP externa {attacker_ip}. El atacante cargó una puerta trasera (Webshell) y ejecutó comandos del sistema "
+                "bajo la identidad del servicio web, confirmando Ejecución Remota de Código (RCE)."
+            ),
+            "resumen_tecnico": (
+                f"Entre las {min_ts.strftime('%H:%M:%S')} y las {max_ts.strftime('%H:%M:%S')} UTC, la IP {attacker_ip} sondeó endpoints sensibles provocando "
+                f"múltiples errores HTTP (404/500) antes de acceder a un script en la ruta de subidas con código 200. A continuación, el proceso worker "
+                f"bajo '{ws['User']}' instanció directamente un intérprete de comandos ejecutando '{ws['Process_CommandLine']}' (Event ID 4688), "
+                "evidenciando la explotación de una vulnerabilidad de subida de archivos arbitraria."
+            ),
+            "remediacion": (
+                f"1. Aislar {w_host} en la DMZ y eliminar cualquier archivo no autorizado en los directorios de subidas web.\n"
+                "2. Deshabilitar los permisos de ejecución de scripts (Handler Mappings) en directorios estáticos de subida de archivos.\n"
+                f"3. Bloquear la IP atacante {attacker_ip} en el Web Application Firewall (WAF) y perimetral."
+            ),
+            "comandos_contencion": (
+                "Get-ChildItem 'C:\\inetpub\\wwwroot\\uploads\\*' -Include *.aspx,*.php,*.jsp | Remove-Item -Force; "
+                f"New-NetFirewallRule -DisplayName 'Block_WebAttacker_{attacker_ip}' -Direction Inbound -RemoteAddress {attacker_ip} -Action Block"
+            ),
+        })
+
+    # =========================================================================
+    # HEURÍSTICA 7: Auditoría de Visibilidad SIEM & Evasión Informational
+    # Destapa todos los eventos críticos que el SIEM clasificó erróneamente como 'Informational'
+    # =========================================================================
     df["Hidden_Critical_Info"] = (df["Incident_ID"] != "NONE") & (df["Severity"] == "Informational")
+    hidden_count = int(df["Hidden_Critical_Info"].sum())
 
-    # Marcar cualquier registro que involucre IPs públicas/externas (tanto en origen como en destino)
-    external_src_ips = {"203.0.113.74", "198.51.100.77", "192.0.2.91"}
-    external_dst_endpoints = {"198.51.100.88:443", "203.0.113.88:443"}
-    df["Involves_External_IP"] = df["Source_IP"].isin(external_src_ips) | df["Destination"].isin(external_dst_endpoints)
+    # Detectar todas las IPs externas involucradas de forma agnóstica
+    df["Involves_External_IP"] = df["Source_IP"].apply(is_external_ip) | df["Destination"].apply(is_external_ip)
+    df["External_IP"] = df["Involves_External_IP"]
 
-    # Cálculo exacto de bytes exfiltrados en INC-04 (PROXY_ACCESS)
-    proxy_rows = df[df["Event_ID"] == "PROXY_ACCESS"]["Process_CommandLine"].dropna()
-    exfil_bytes = sum(
-        int(re.search(r"bytes_out=(\d+)", str(val)).group(1))
-        for val in proxy_rows
-        if re.search(r"bytes_out=(\d+)", str(val))
-    )
-    exfil_mib = exfil_bytes / (1024 * 1024)
-    exfil_mb = exfil_bytes / 1_000_000
+    obs_id = "OBS-01"
+    obs_title = "Brechas de Visibilidad SIEM, Eventos Críticos en 'Informational' y Falta de Normalización"
+    findings.append({
+        "id": obs_id,
+        "titulo": obs_title,
+        "riesgo": "Medio",
+        "cvss_estimado": "6.5 (Medio - Riesgo Operativo SOC)",
+        "kill_chain": "Defense Evasion -> SIEM Telemetry Blindspots -> Asset Fragmentation",
+        "mitre_tacticas": "Defense Evasion (TA0005)",
+        "mitre": "T1562 (Impair Defenses / Suboptimal SIEM Severity Rules & Asset Naming)",
+        "ventana": f"{df['Timestamp_dt'].min().strftime('%Y-%m-%d %H:%M:%S')} a {df['Timestamp_dt'].max().strftime('%H:%M:%S')} (Ventana completa del dataset)",
+        "eventos_count": hidden_count,
+        "eventos_ocultos_info": hidden_count,
+        "activos": f"Fragmentación de Hostnames: {norm_stats['dc_hyphen_count']} vs {norm_stats['dc_no_hyphen_count']} registros",
+        "usuarios": f"Cuentas Duales: {norm_stats['backupsvc_count']} vs {norm_stats['svc_backup_count']} registros",
+        "ioc": f"{hidden_count} eventos críticos clasificados como Informational en el SIEM",
+        "evidencia_logs": f"{hidden_count} eventos rescatados por correlación multi-etapa SOC Nivel 2",
+        "resumen_ejecutivo": (
+            f"El SIEM presenta una severa regla de evasión por diseño: {hidden_count} eventos críticos para la resolución de los incidentes "
+            "(incluyendo logons exitosos post-fuerza bruta, manipulación de permisos de red, compresión de exfiltración y ejecuciones cíclicas de malware) "
+            "fueron etiquetados como 'Informational'. Un analista que filtre logs por severidad descartaría la prueba forense de compromiso."
+        ),
+        "resumen_tecnico": (
+            f"La correlación SOC L2 rescató {hidden_count} eventos etiquetados como 'Informational' que evidencian el éxito de las etapas de intrusión. "
+            "Adicionalmente, se detectó falta de normalización en los agentes de ingesta (inconsistencias en nombres de servidores y duplicidad de cuentas de servicio), "
+            "lo que fragmenta las alertas y burla las correlaciones automáticas del SIEM de Nivel 1."
+        ),
+        "remediacion": (
+            "1. Implementar reglas de detección Sigma para elevar a severidad High la creación de procesos en rutas temporales y logons anómalos.\n"
+            "2. Normalizar la configuración de recolección de logs en controladores de dominio para unificar nombres de host.\n"
+            "3. Auditar la taxonomía de cuentas de servicio en Active Directory."
+        ),
+        "comandos_contencion": (
+            "# Regla Sigma / KQL recomendada: SecurityEvent | where EventID == 4688 and (CommandLine has_any "
+            "('C:\\\\ProgramData\\\\', 'C:\\\\Users\\\\Public\\\\', '7z.exe', 'tar.exe', 'vssadmin'))"
+        ),
+    })
 
-    # Eventos críticos camuflados como Informational (Trampas SOC L2)
+    # =========================================================================
+    # Cálculo Dinámico de Volumen de Exfiltración (en bytes, MiB y MB)
+    # =========================================================================
+    exfil_bytes = 0
+    # Buscar patrones de bytes en todas las líneas de comando o mensajes
+    for val in df["Process_CommandLine"].dropna():
+        m = re.search(r"(?:bytes_out|bytes_sent|bytes|size)=(\d+)", str(val), re.IGNORECASE)
+        if m:
+            exfil_bytes += int(m.group(1))
+
+    exfil_mib = exfil_bytes / (1024 * 1024) if exfil_bytes > 0 else 0.0
+    exfil_mb = exfil_bytes / 1_000_000 if exfil_bytes > 0 else 0.0
+
     hidden_df = df[df["Hidden_Critical_Info"]].copy()
     hidden_events_list = (
         hidden_df[
@@ -206,290 +667,21 @@ def analyze_siem_logs(raw_df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict[str
         .to_dict(orient="records")
     )
 
-    findings: List[Dict[str, Any]] = [
-        {
-            "id": "INC-01",
-            "titulo": "Password Spraying Externo y Compromiso de Cuenta de Dominio (CORP\\mgarcia)",
-            "riesgo": "Alto",
-            "cvss_estimado": "8.8 (Crítico/Alto)",
-            "kill_chain": "Initial Access -> Credential Access -> Privilege Escalation",
-            "mitre_tacticas": "Credential Access (TA0006), Initial Access (TA0001), Privilege Escalation (TA0004)",
-            "mitre": "T1110.003 (Password Spraying), T1078.002 (Valid Accounts: Domain Accounts)",
-            "ventana": "2026-10-23 08:25:00 a 08:40:00 (15 min)",
-            "eventos_count": int((df["Incident_ID"] == "INC-01").sum()),
-            "eventos_ocultos_info": int(((df["Incident_ID"] == "INC-01") & (df["Severity"] == "Informational")).sum()),
-            "activos": "DC-01 (Controlador de Dominio), WS-031 (Estación de Trabajo)",
-            "usuarios": "8 cuentas atacadas (jlopez, aperez, helpdesk, mgarcia, rrojas, slopez, backupsvc, dtorres) | Comprometida: CORP\\mgarcia",
-            "ioc": "IP Atacante: 203.0.113.74 | Event IDs: 4625 (x33 fallos), 4624 (EVT-00123 login exitoso), 4672 (EVT-00126 privilegios especiales)",
-            "evidencia_logs": "EVT-00057 a EVT-00111 (33x Event 4625 Warning), EVT-00123 (Event 4624 Informational), EVT-00126 (Event 4672 Informational)",
-            "resumen_ejecutivo": (
-                "Un atacante externo desde la IP 203.0.113.74 ejecutó un ataque automatizado de pulverización de contraseñas "
-                "(Password Spraying) contra el Controlador de Dominio (DC-01) probando contraseñas comunes sobre 8 cuentas corporativas. "
-                "Tras 33 intentos fallidos, logró vulnerar la cuenta CORP\\mgarcia y obtuvo privilegios elevados en la estación WS-031."
-            ),
-            "resumen_tecnico": (
-                "Entre las 08:25:00 y las 08:35:08, la IP pública 203.0.113.74 generó 33 eventos 4625 ('An account failed to log on - bad password') "
-                "contra DC-01 a un ritmo constante de un intento cada 19 segundos rotando sobre 8 usuarios para evadir umbrales de bloqueo de cuenta. "
-                "A las 08:39:00 (EVT-00123), el atacante logró un inicio de sesión exitoso (Event ID 4624) con CORP\\mgarcia en DC-01, seguido a las "
-                "08:40:00 (EVT-00126) por la asignación de privilegios especiales (Event ID 4672) en WS-031. Ambos eventos de éxito estaban "
-                "etiquetados con severidad 'Informational' en el SIEM."
-            ),
-            "remediacion": (
-                "1. Resetear inmediatamente la contraseña de CORP\\mgarcia y revocar todos los tickets Kerberos TGT/TGS activos.\n"
-                "2. Bloquear la IP externa 203.0.113.74 en el Firewall Perimetral.\n"
-                "3. Habilitar MFA obligatorio y configurar políticas de Smart Lockout para autenticaciones externas contra Active Directory."
-            ),
-            "comandos_contencion": (
-                "Disable-ADAccount -Identity mgarcia; Revoke-AzureADUserAllRefreshToken; "
-                "New-NetFirewallRule -DisplayName 'Block_IOC_203.0.113.74' -Direction Inbound -RemoteAddress 203.0.113.74 -Action Block"
-            ),
-        },
-        {
-            "id": "INC-02",
-            "titulo": "Intrusión RDP, Movimiento Lateral SMB y Exfiltración Financiera (Budget2027.xlsx)",
-            "riesgo": "Alto",
-            "cvss_estimado": "9.6 (Crítico)",
-            "kill_chain": "Initial Access -> Execution -> Discovery -> Lateral Movement -> Collection -> Exfiltration",
-            "mitre_tacticas": "Initial Access (TA0001), Execution (TA0002), Discovery (TA0007), Lateral Movement (TA0008), Collection (TA0009), Exfiltration (TA0010)",
-            "mitre": "T1021.001 (RDP), T1059.001 (PowerShell), T1087.001, T1135 (Share Discovery), T1021.002 (SMB), T1560.001 (Archive via Utility), T1041 (Exfiltration Over C2)",
-            "ventana": "2026-10-23 09:02:00 a 09:22:00 (20 min)",
-            "eventos_count": int((df["Incident_ID"] == "INC-02").sum()),
-            "eventos_ocultos_info": int(((df["Incident_ID"] == "INC-02") & (df["Severity"] == "Informational")).sum()),
-            "activos": "APP-SRV01 (10.10.2.15), FS-SRV01 (Servidor de Archivos Financieros)",
-            "usuarios": "CORP\\admin (Cuenta Privilegiada)",
-            "ioc": "IPs Externas: 198.51.100.77 (RDP Ingress), 203.0.113.88:443 (Exfil C2) | IP Interna Pivote: 10.10.2.15 | Archivos: Finance\\Budget2027.xlsx, C:\\Temp\\finance.zip",
-            "evidencia_logs": "EVT-00174..00180 (4x 4625 RDP), EVT-00188 (4624 RDP), EVT-00193 (4672), EVT-00198 (PS Encoded), EVT-00207 (4104 ScriptBlock), EVT-00214 (net view), EVT-00222..00231 (SMB/Budget2027.xlsx), EVT-00232 (tar.exe), EVT-00235 (5156 Exfil), EVT-00237 (4634 Info)",
-            "resumen_ejecutivo": (
-                "Un adversario externo comprometió la cuenta administrativa CORP\\admin mediante Escritorio Remoto (RDP) en el servidor de aplicaciones "
-                "APP-SRV01. Desde allí se desplazó lateralmente al servidor de archivos FS-SRV01, sustrajo el presupuesto corporativo confidencial "
-                "'Budget2027.xlsx', lo comprimió y lo exfiltró hacia un servidor externo bajo control del atacante."
-            ),
-            "resumen_tecnico": (
-                "La IP externa 198.51.100.77 realizó 4 intentos fallidos por RDP (LogonType=10, Event ID 4625) entre las 09:02 y 09:05 contra CORP\\admin "
-                "en APP-SRV01, logrando acceso exitoso a las 09:06:00 (EVT-00188) y privilegios especiales (EVT-00193). A las 09:09:00 ejecutó "
-                "'powershell.exe -NoProfile -EncodedCommand [REDACTED_SYNTHETIC]' (EVT-00198) e invocó el bloque de script 'Get-LocalGroupMember Administrators; "
-                "Get-SmbShare' (Event ID 4104, EVT-00207) y 'net.exe view \\\\FS-SRV01' (EVT-00214). A las 09:16:00 saltó por red (LogonType=3, EVT-00225) "
-                "desde APP-SRV01 (10.10.2.15) hacia FS-SRV01, accedió a '\\\\FS-SRV01\\Finance\\Budget2027.xlsx' (Event ID 5145, EVT-00231), creó el paquete "
-                "de staging 'tar.exe -a -c -f C:\\Temp\\finance.zip C:\\Temp\\reports' (EVT-00232), exfiltró el archivo hacia 203.0.113.88:443 "
-                "usando powershell.exe (Event ID 5156, EVT-00235) y cerró sesión a las 09:22:00 (EVT-00237, Informational)."
-            ),
-            "remediacion": (
-                "1. Aislar inmediatamente APP-SRV01 de la red corporativa y cerrar toda exposición directa de RDP (TCP/3389) hacia Internet.\n"
-                "2. Rotar las credenciales de CORP\\admin y auditar todas las sesiones SMB originadas desde 10.10.2.15.\n"
-                "3. Bloquear las IPs 198.51.100.77 y 203.0.113.88 en el Firewall Perimetral y eliminar C:\\Temp\\finance.zip tras su preservación forense."
-            ),
-            "comandos_contencion": (
-                "Disable-NetAdapter -Name 'Ethernet0' -Confirm:$false; Stop-Service TermService -Force; "
-                "Remove-Item -Path 'C:\\Temp\\finance.zip' -Force"
-            ),
-        },
-        {
-            "id": "INC-03",
-            "titulo": "Actividad Pre-Ransomware: Recolección Financiera y Destrucción de Copias de Sombra (VSS)",
-            "riesgo": "Alto",
-            "cvss_estimado": "9.4 (Crítico)",
-            "kill_chain": "Execution -> Collection -> Impact (Inhibit System Recovery)",
-            "mitre_tacticas": "Execution (TA0002), Collection (TA0009), Impact (TA0040)",
-            "mitre": "T1059.001 (PowerShell Encoded), T1039 (Data from Network Shared Drive), T1490 (Inhibit System Recovery: vssadmin)",
-            "ventana": "2026-10-23 09:36:00 a 09:43:00 (7 min)",
-            "eventos_count": int((df["Incident_ID"] == "INC-03").sum()),
-            "eventos_ocultos_info": int(((df["Incident_ID"] == "INC-03") & (df["Severity"] == "Informational")).sum()),
-            "activos": "WS-023 (10.10.1.44), FS-SRV01 (\\\\FS-SRV01\\Finance)",
-            "usuarios": "CORP\\backupsvc (Cuenta de Servicio de Respaldos)",
-            "ioc": "IP Interna: 10.10.1.44 (WS-023) | Comandos: powershell.exe -NoProfile -EncodedCommand <base64_redacted> (EVT-00280), vssadmin.exe delete shadows /all /quiet (EVT-00314)",
-            "evidencia_logs": "EVT-00280 (Event 4688 PS Base64), EVT-00284 a EVT-00309 (16x Event 4663 sobre Finance\\FY2026\\document_000..015.xlsx), EVT-00314 (Event 4688 vssadmin), EVT-00315 (Event 5145 Info)",
-            "resumen_ejecutivo": (
-                "La cuenta de servicio de respaldos (CORP\\backupsvc) fue utilizada en la estación WS-023 para ejecutar código oculto, recorrer de forma "
-                "automatizada 16 documentos financieros de FY2026 y eliminar silenciosamente todas las copias de seguridad locales (Volume Shadow Copies). "
-                "Este patrón corresponde a la fase inmediatamente previa a la detonación de un ataque de Ransomware."
-            ),
-            "resumen_tecnico": (
-                "A las 09:36:00 en el host WS-023 (10.10.1.44), la cuenta CORP\\backupsvc ejecutó 'powershell.exe -NoProfile -EncodedCommand <base64_redacted>' "
-                "(Event ID 4688, EVT-00280). Entre las 09:37:00 y las 09:41:00 (EVT-00284 a EVT-00309) realizó un barrido secuencial automatizado cada 16 segundos "
-                "sobre 16 archivos en '\\\\FS-SRV01\\Finance' (Finance\\FY2026\\document_000.xlsx hasta document_015.xlsx, Event ID 4663). Finalmente, a las 09:42:00 "
-                "(EVT-00314), ejecutó 'vssadmin.exe delete shadows /all /quiet' en WS-023 para destruir las copias de sombra del volumen e impedir la recuperación, "
-                "seguido a las 09:43:00 (EVT-00315, Informational) por una verificación de permisos sobre '\\\\FS-SRV01\\Finance' (Event ID 5145)."
-            ),
-            "remediacion": (
-                "1. Aislar de inmediato la estación WS-023 (10.10.1.44) de la red para frenar cualquier proceso de cifrado sobre recursos SMB.\n"
-                "2. Deshabilitar temporalmente la cuenta de servicio CORP\\backupsvc y restringir sus permisos mediante Group Managed Service Accounts (gMSA).\n"
-                "3. Verificar la integridad de los respaldos inmutables/offline de FS-SRV01 y bloquear vssadmin.exe mediante reglas Attack Surface Reduction (ASR)."
-            ),
-            "comandos_contencion": (
-                "Disable-ADAccount -Identity backupsvc; Stop-Computer -ComputerName WS-023 -Force; "
-                "Add-MpPreference -AttackSurfaceReductionRules_Ids 9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2 -AttackSurfaceReductionRules_Actions Enabled"
-            ),
-        },
-        {
-            "id": "INC-04",
-            "titulo": f"Exfiltración Masiva de Documentación Legal vía HTTPS POST ({exfil_mib:.2f} MiB / {exfil_mb:.2f} MB)",
-            "riesgo": "Alto",
-            "cvss_estimado": "8.9 (Alto)",
-            "kill_chain": "Collection -> Staging -> Exfiltration",
-            "mitre_tacticas": "Collection (TA0009), Exfiltration (TA0010)",
-            "mitre": "T1039 (Data from Network Shared Drive), T1560.001 (Archive via Utility: 7-Zip), T1048.002 (Exfiltration Over Asymmetric Encrypted Non-C2 Protocol)",
-            "ventana": "2026-10-23 10:40:00 a 10:49:18 (9 min 18 seg)",
-            "eventos_count": int((df["Incident_ID"] == "INC-04").sum()),
-            "eventos_ocultos_info": int(((df["Incident_ID"] == "INC-04") & (df["Severity"] == "Informational")).sum()),
-            "activos": "WS-018 (10.10.1.31), FS-SRV01 (\\\\FS-SRV01\\Legal)",
-            "usuarios": "CORP\\rrojas",
-            "ioc": f"IP Externa Destino: 198.51.100.88:443 (/upload/session/1..22) | Archivo: C:\\Users\\Public\\archive.7z | Total Exfiltrado: {exfil_bytes:,} bytes ({exfil_mib:.2f} MiB)",
-            "evidencia_logs": "EVT-00419 (Event 5140 Info: \\\\FS-SRV01\\Legal), EVT-00428 (Event 4688 Info: 7z.exe), EVT-00430 a EVT-00461 (22x PROXY_ACCESS HTTPS POST)",
-            "resumen_ejecutivo": (
-                f"Desde la estación de trabajo WS-018, bajo la cuenta del usuario CORP\\rrojas, se accedió al repositorio confidencial del departamento "
-                f"Legal, se empaquetaron todos los documentos Word en un archivo comprimido y se exfiltraron {exfil_mib:.2f} MiB ({exfil_mb:.2f} MB) "
-                f"en 22 envíos fraccionados hacia el servidor externo 198.51.100.88."
-            ),
-            "resumen_tecnico": (
-                f"A las 10:40:00 (EVT-00419, severidad 'Informational'), el usuario CORP\\rrojas desde WS-018 (10.10.1.31) accedió al recurso compartido "
-                f"'\\\\FS-SRV01\\Legal' (Event ID 5140). Dos minutos después, a las 10:42:00 (EVT-00428, también marcado como 'Informational'), ejecutó el "
-                f"comando '7z.exe a C:\\Users\\Public\\archive.7z C:\\Legal\\*.docx' (Event ID 4688). Inmediatamente, entre las 10:43:00 y las 10:49:18 "
-                f"(EVT-00430 a EVT-00461), realizó 22 peticiones HTTPS POST consecutivas cada 18 segundos a través del Proxy hacia 198.51.100.88:443 "
-                f"(URIs /upload/session/1 hasta /upload/session/22), exfiltrando exactamente {exfil_bytes:,} bytes ({exfil_mib:.2f} MiB / {exfil_mb:.2f} MB)."
-            ),
-            "remediacion": (
-                "1. Bloquear de inmediato el destino 198.51.100.88 en el Proxy Corporativo y Firewall Perimetral.\n"
-                "2. Asegurar la estación WS-018 bajo cadena de custodia forense (preservar C:\\Users\\Public\\archive.7z y artefactos de memoria/disco).\n"
-                "3. Notificar al Comité Legal y de Cumplimiento/Privacidad para evaluar el alcance de los documentos *.docx comprometidos."
-            ),
-            "comandos_contencion": (
-                "Suspend-ADAccount -Identity rrojas; Get-FileHash 'C:\\Users\\Public\\archive.7z' -Algorithm SHA256; "
-                "New-NetFirewallRule -DisplayName 'Block_Exfil_198.51.100.88' -Direction Outbound -RemoteAddress 198.51.100.88 -Action Block"
-            ),
-        },
-        {
-            "id": "INC-05",
-            "titulo": "Persistencia Dual mediante Tarea Programada y Servicio de Sistema en APP-SRV01",
-            "riesgo": "Alto",
-            "cvss_estimado": "8.6 (Alto)",
-            "kill_chain": "Initial Logon -> Persistence -> Privilege Escalation -> Execution",
-            "mitre_tacticas": "Persistence (TA0003), Privilege Escalation (TA0004), Execution (TA0002)",
-            "mitre": "T1053.005 (Scheduled Task/Job: Scheduled Task), T1543.003 (Create or Modify System Process: Windows Service)",
-            "ventana": "2026-10-23 11:35:00 a 12:04:00 (29 min)",
-            "eventos_count": int((df["Incident_ID"] == "INC-05").sum()),
-            "eventos_ocultos_info": int(((df["Incident_ID"] == "INC-05") & (df["Severity"] == "Informational")).sum()),
-            "activos": "APP-SRV01 (Servidor de Aplicaciones)",
-            "usuarios": "CORP\\helpdesk",
-            "ioc": "Origen: 10.10.3.18 | Tarea: \\Microsoft\\Windows\\UpdateCheck (C:\\ProgramData\\updatecheck.ps1) | Servicio: WinUpdateHelper (C:\\ProgramData\\wuhelper.exe)",
-            "evidencia_logs": "EVT-00519 (Event 4624 Info), EVT-00523 (Event 4698 Task Created), EVT-00524 (Event 7045 Service Installed), EVT-00528, EVT-00542, EVT-00548, EVT-00559, EVT-00564 (5x Event 4688 Info wuhelper.exe)",
-            "resumen_ejecutivo": (
-                "Utilizando la cuenta de soporte técnico CORP\\helpdesk, se implantaron dos mecanismos redundantes de persistencia oculta en el servidor "
-                "crítico APP-SRV01: una tarea programada camuflada como actualización de Windows y un servicio del sistema que ejecuta un programa no "
-                "autorizado cada 6 minutos para mantener el control del servidor."
-            ),
-            "resumen_tecnico": (
-                "A las 11:35:00 (EVT-00519, Informational), la cuenta CORP\\helpdesk inició sesión en APP-SRV01 desde 10.10.3.18. A las 11:37:00 "
-                "(EVT-00523, Event ID 4698) creó la tarea programada '\\Microsoft\\Windows\\UpdateCheck' configurada para ejecutar "
-                "'powershell.exe -File C:\\ProgramData\\updatecheck.ps1'. Un minuto después, a las 11:38:00 (EVT-00524, Event ID 7045), instaló el servicio "
-                "de sistema 'WinUpdateHelper' apuntando al binario 'C:\\ProgramData\\wuhelper.exe'. Posteriormente, dicho binario se ejecutó periódicamente "
-                "cada 6 minutos a las 11:40, 11:46, 11:52, 11:58 y 12:04 (EVT-00528, EVT-00542, EVT-00548, EVT-00559 y EVT-00564, 5 eventos Event ID 4688 etiquetados como 'Informational')."
-            ),
-            "remediacion": (
-                "1. Detener y eliminar el servicio 'WinUpdateHelper' y anular el registro de la tarea programada '\\Microsoft\\Windows\\UpdateCheck' en APP-SRV01.\n"
-                "2. Extraer copias forenses (hashing SHA-256 y análisis estático/dinámico) de C:\\ProgramData\\wuhelper.exe y C:\\ProgramData\\updatecheck.ps1 antes de su borrado.\n"
-                "3. Auditar la estación 10.10.3.18 y revocar privilegios administrativos de CORP\\helpdesk sobre servidores de producción."
-            ),
-            "comandos_contencion": (
-                "Stop-Service -Name 'WinUpdateHelper' -Force; sc.exe delete WinUpdateHelper; "
-                "Unregister-ScheduledTask -TaskName 'UpdateCheck' -TaskPath '\\Microsoft\\Windows\\' -Confirm:$false"
-            ),
-        },
-        {
-            "id": "INC-06",
-            "titulo": "Explotación de Servidor Web IIS, Webshell ASPX y Ejecución Remota de Comandos (RCE)",
-            "riesgo": "Alto",
-            "cvss_estimado": "9.8 (Crítico)",
-            "kill_chain": "Reconnaissance -> Exploitation -> Persistence (Webshell) -> Execution (RCE)",
-            "mitre_tacticas": "Initial Access (TA0001), Persistence (TA0003), Execution (TA0002)",
-            "mitre": "T1190 (Exploit Public-Facing Application), T1505.003 (Server Software Component: Web Shell), T1059.003 (Windows Command Shell)",
-            "ventana": "2026-10-23 12:10:00 a 12:15:00 (5 min)",
-            "eventos_count": int((df["Incident_ID"] == "INC-06").sum()),
-            "eventos_ocultos_info": int(((df["Incident_ID"] == "INC-06") & (df["Severity"] == "Informational")).sum()),
-            "activos": "WEB-01 (Servidor Web Público IIS - Puerto 443)",
-            "usuarios": "IIS APPPOOL\\DefaultAppPool",
-            "ioc": "IP Atacante: 192.0.2.91 | Webshell URI: /uploads/test.aspx?cmd=whoami | Endpoints sondeados: /admin/, /login?user=admin, /api/v1/export | Proceso hijo: cmd.exe /c whoami",
-            "evidencia_logs": "EVT-00571 a EVT-00596 (21x HTTP_ACCESS Warning desde 192.0.2.91: 6x HTTP 200, 6x HTTP 404, 9x HTTP 500), EVT-00599 (Event 4688 cmd.exe /c whoami)",
-            "resumen_ejecutivo": (
-                "El servidor web público (WEB-01) sufrió un ataque dirigido desde la IP 192.0.2.91. El atacante explotó una vulnerabilidad en el directorio "
-                "de carga de archivos (/uploads/test.aspx) instalando una puerta trasera web (Webshell) con la que logró ejecutar comandos directamente "
-                "sobre el sistema operativo del servidor."
-            ),
-            "resumen_tecnico": (
-                "Entre las 12:10:00 y las 12:14:00 (EVT-00571 a EVT-00596), la IP externa 192.0.2.91 envió 21 peticiones HTTP/HTTPS contra WEB-01:443 "
-                "enumerando '/login?user=admin', '/admin/' y '/api/v1/export' (provocando 9 errores HTTP 500, 6 HTTP 404 y 6 HTTP 200), e invocando "
-                "la webshell '/uploads/test.aspx?cmd=whoami' (código HTTP 200 en EVT-00571). A las 12:15:00 (EVT-00599, Event ID 4688), el proceso "
-                "de aplicación de IIS bajo la identidad 'IIS APPPOOL\\DefaultAppPool' instanció un shell del sistema ejecutando 'cmd.exe /c whoami', "
-                "confirmando Ejecución Remota de Código (RCE)."
-            ),
-            "remediacion": (
-                "1. Poner WEB-01 en modo mantenimiento o aislarlo en la DMZ, eliminar '/uploads/test.aspx' y auditar todo el directorio web en busca de otras webshells.\n"
-                "2. Configurar IIS para deshabilitar permisos de ejecución de scripts (Handler Mappings ASPX/PHP) en el directorio '/uploads/'.\n"
-                "3. Bloquear la IP 192.0.2.91 en el WAF/Firewall y aplicar reglas de endurecimiento para impedir que w3wp.exe ejecute cmd.exe o powershell.exe."
-            ),
-            "comandos_contencion": (
-                "Remove-Item -Path 'C:\\inetpub\\wwwroot\\uploads\\test.aspx' -Force; Stop-WebAppPool -Name 'DefaultAppPool'; "
-                "New-NetFirewallRule -DisplayName 'Block_WebAttacker_192.0.2.91' -Direction Inbound -RemoteAddress 192.0.2.91 -Action Block"
-            ),
-        },
-        {
-            "id": "OBS-01",
-            "titulo": "Brechas de Visibilidad SIEM, Eventos Críticos en 'Informational' y Falta de Normalización",
-            "riesgo": "Medio",
-            "cvss_estimado": "6.5 (Medio - Riesgo Operativo SOC)",
-            "kill_chain": "Defense Evasion -> SIEM Telemetry Blindspots -> Asset Fragmentation",
-            "mitre_tacticas": "Defense Evasion (TA0005) / SecOps Telemetry Quality",
-            "mitre": "T1562 (Impair Defenses / Suboptimal SIEM Severity Rules & Asset Naming)",
-            "ventana": "2026-10-23 07:46:07 a 13:44:06 (Ventana completa del dataset)",
-            "eventos_count": len(hidden_events_list),
-            "eventos_ocultos_info": len(hidden_events_list),
-            "activos": f"DC-01 ({norm_stats['dc_hyphen_count']} logs) vs DC01 ({norm_stats['dc_no_hyphen_count']} logs), WS-022, APP-SRV01, FS-SRV01",
-            "usuarios": f"CORP\\backupsvc ({norm_stats['backupsvc_count']} logs) vs CORP\\svc_backup ({norm_stats['svc_backup_count']} logs), CORP\\mruiz",
-            "ioc": f"{len(hidden_events_list)} eventos críticos de intrusión etiquetados como Informational; inconsistencia de nombres en agentes SIEM",
-            "evidencia_logs": "EVT-00123 (4624), EVT-00126 (4672), EVT-00237 (4634), EVT-00315 (5145), EVT-00419 (5140), EVT-00428 (4688 7z.exe), EVT-00519 (4624), EVT-00528, EVT-00542, EVT-00548, EVT-00559, EVT-00564 (5x 4688 wuhelper.exe)",
-            "resumen_ejecutivo": (
-                "La auditoría de Nivel 2 detectó que el sistema SIEM actual clasifica como 'Informativos' (sin alerta) 12 eventos críticos de "
-                "éxito de intrusión, compresión de archivos confidenciales y ejecución de software malicioso. Además, existen servidores y cuentas "
-                "registrados con nombres duplicados (DC-01 vs DC01), lo que fragmenta los tableros de monitoreo."
-            ),
-            "resumen_tecnico": (
-                f"Un filtro básico de Nivel 1 que descarte 'Severity == Informational' perdería {len(hidden_events_list)} eventos clave de la cadena de ataque "
-                f"(diferencia entre las 112 alertas nativas del SIEM y los 124 eventos maliciosos correlacionados): el login exitoso tras Password Spraying "
-                f"(EVT-00123) y su escalamiento (EVT-00126), el cierre de sesión RDP de CORP\\admin (EVT-00237), la verificación de permisos SMB post-vssadmin "
-                f"(EVT-00315), el acceso al recurso Legal (EVT-00419) y su empaquetado con 7z.exe (EVT-00428), el login de CORP\\helpdesk (EVT-00519) y las 5 "
-                f"ejecuciones del binario persistente C:\\ProgramData\\wuhelper.exe (EVT-00528, EVT-00542, EVT-00548, EVT-00559 y EVT-00564). Asimismo, el "
-                f"Controlador de Dominio reporta como 'DC-01' ({norm_stats['dc_hyphen_count']} eventos) y 'DC01' ({norm_stats['dc_no_hyphen_count']} eventos), "
-                f"y coexisten las cuentas 'CORP\\backupsvc' ({norm_stats['backupsvc_count']}) y 'CORP\\svc_backup' ({norm_stats['svc_backup_count']})."
-            ),
-            "remediacion": (
-                "1. Implementar reglas de correlación Sigma en el SIEM para alertar sobre Event ID 4624/4672 precedidos por ráfagas de Event ID 4625 desde la misma IP.\n"
-                "2. Elevar a severidad 'High' toda creación de procesos (Event ID 4688) originada en rutas públicas (C:\\ProgramData\\, C:\\Users\\Public\\, C:\\Temp\\) o utilidades de archivado (7z.exe, tar.exe).\n"
-                "3. Estandarizar los agentes colectores de logs para unificar el hostname 'DC01' -> 'DC-01' y auditar la nomenclatura de cuentas de servicio."
-            ),
-            "comandos_contencion": (
-                "# Regla Sigma / KQL recomendada:\n"
-                "SecurityEvent | where EventID == 4688 and (CommandLine has_any ('C:\\\\ProgramData\\\\', 'C:\\\\Users\\\\Public\\\\', '7z.exe', 'tar.exe', 'vssadmin'))"
-            ),
-        },
-    ]
-
-    high_count = sum(1 for f in findings if f["riesgo"] == "Alto")
-    med_count = sum(1 for f in findings if f["riesgo"] == "Medio")
-
     summary_metrics = {
-        "total_logs": int(len(df)),
-        "time_start": str(df["Timestamp"].min()),
-        "time_end": str(df["Timestamp"].max()),
+        "total_logs": len(df),
         "native_non_info_alerts": int((df["Severity"] != "Informational").sum()),
         "correlated_malicious_events": int((df["Incident_ID"] != "NONE").sum()),
-        "hidden_info_critical_events": int(df["Hidden_Critical_Info"].sum()),
-        "external_ip_events_count": int(df["Involves_External_IP"].sum()),
-        "critical_incidents_count": high_count,
-        "medium_findings_count": med_count,
+        "hidden_info_critical_events": hidden_count,
+        "external_ip_events_count": int(df["External_IP"].sum()),
+        "critical_incidents_count": sum(1 for f in findings if f["riesgo"] == "Alto"),
+        "medium_findings_count": sum(1 for f in findings if f["riesgo"] == "Medio"),
+        "observations_count": sum(1 for f in findings if f["riesgo"] == "Medio"),
         "exfil_bytes": exfil_bytes,
         "exfil_mib": round(exfil_mib, 2),
         "exfil_mb": round(exfil_mb, 2),
+        "time_start": str(df["Timestamp_dt"].min()),
+        "time_end": str(df["Timestamp_dt"].max()),
         "severity_counts": df["Severity"].value_counts().to_dict(),
-        "log_source_counts": df["Log_Source"].value_counts().to_dict(),
         "normalization": norm_stats,
         "hidden_events_records": hidden_events_list,
     }

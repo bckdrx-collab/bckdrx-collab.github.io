@@ -405,7 +405,11 @@ except Exception as exc:
 for warn_msg in summary_metrics["normalization"].get("schema_warnings", []):
     st.warning(f"ℹ️ **Aviso de Esquema SIEM:** {warn_msg}")
 
-if st.session_state.get("last_source_id") != f"{source_id}:{sheet_name}":
+if (
+    "exec_rep" not in st.session_state
+    or "tech_rep" not in st.session_state
+    or st.session_state.get("last_source_id") != f"{source_id}:{sheet_name}"
+):
     exec_rep_init, tech_rep_init, status_init = generate_ai_reports(
         findings, summary_metrics, provider, model_name, api_url, api_key
     )
@@ -433,8 +437,8 @@ if "jev_chat_history" not in st.session_state:
     ]
 
 pdf_bytes = cached_compile_pdf(
-    st.session_state["exec_rep"],
-    st.session_state["tech_rep"],
+    st.session_state.get("exec_rep", ""),
+    st.session_state.get("tech_rep", ""),
     findings,
     summary_metrics,
     df,
@@ -472,7 +476,7 @@ with top_left:
 
 with top_right:
     with st.container(border=True):
-        st.caption("🏆 **Entregable Oficial Compilado (7 Páginas)**")
+        st.caption("🏆 **Entregable Oficial Compilado (8 Páginas)**")
         st.download_button(
             label="📥 Descargar Informe PDF",
             data=pdf_bytes,

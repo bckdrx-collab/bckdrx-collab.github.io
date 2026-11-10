@@ -1,15 +1,17 @@
 # ⚡ JEV // SOC L2 Cyber Command OS — LangChain LCEL & Análisis Forense SIEM
 
 [![Live Portal GitHub Pages](https://img.shields.io/badge/🌐_GitHub_Pages_(Live_App)-bckdrx--collab.github.io-00F0FF?style=for-the-badge&logoColor=black)](https://bckdrx-collab.github.io/soc-l2-incident-response/)
+[![Download Android APK](https://img.shields.io/badge/📱_Android_APK_(Mobile_%26_Tablet)-Descargar_v3.0-10B981?style=for-the-badge&logo=android)](https://bckdrx-collab.github.io/soc-l2-incident-response/JEV_SOC_L2_Cyber_Command_Mobile_Tablet.apk)
 [![LangChain LCEL Engine](https://img.shields.io/badge/🔗_Orquestador-LangChain_LCEL-8B5CF6?style=for-the-badge)](https://github.com/bckdrx-collab/soc-l2-incident-response)
 [![Descargar Informe PDF Oficial](https://img.shields.io/badge/📄_Informe_Oficial_PDF-Descargar_Directo-FF2A5F?style=for-the-badge)](https://bckdrx-collab.github.io/soc-l2-incident-response/Informe_Final_SOC_L2_Incidentes.pdf)
 
 Proyecto final desarrollado para el **Bootcamp de Analista SOC Nivel 2 (Dojo Community)**.  
-**JEV // Cyber Command OS v3.0** combina una **interfaz fluida Bento / Glassmorphic** con un **motor de orquestación Multi-Agente en LangChain (`LCEL — LangChain Expression Language`)** que procesa exportaciones SIEM en Excel (`.xlsx`), ejecuta correlación multi-etapa sobre **715 eventos**, destapa **12 eventos críticos ocultos bajo severidad `Informational`**, incluye un **Copiloto Forense Interactivo (`JEVCyberCopilotChain`)** y compila el **Informe Oficial en PDF (Ejecutivo C-Level + Técnico DFIR con mapeo MITRE ATT&CK)**.
+**JEV // Cyber Command OS v3.0** combina una **interfaz fluida Bento / Glassmorphic (optimizada para Desktop, Tablets y Smartphones)** con un **motor de orquestación Multi-Agente en LangChain (`LCEL — LangChain Expression Language`)** que procesa exportaciones SIEM en Excel (`.xlsx`), ejecuta correlación multi-etapa sobre **715 eventos**, destapa **12 eventos críticos ocultos bajo severidad `Informational`**, incluye un **Copiloto Forense Interactivo (`JEVCyberCopilotChain`)**, compila el **Informe Oficial en PDF (8 Páginas, Ejecutivo C-Level + Técnico DFIR con mapeo MITRE ATT&CK)** y provee la **aplicación nativa compilada y firmada para Android (APK)**.
 
 ### 🌐 Enlaces Publicados en Vivo (`github.io`)
 - **Portal Web Interactivo Fluido (JEV Cyber Command OS):** [https://bckdrx-collab.github.io/soc-l2-incident-response/](https://bckdrx-collab.github.io/soc-l2-incident-response/)
 - **Portal Principal de Usuario (`bckdrx-collab.github.io`):** [https://bckdrx-collab.github.io/](https://bckdrx-collab.github.io/)
+- **Descarga Directa de la App Android APK (Mobile & Tablet):** [JEV_SOC_L2_Cyber_Command_Mobile_Tablet.apk](https://bckdrx-collab.github.io/soc-l2-incident-response/JEV_SOC_L2_Cyber_Command_Mobile_Tablet.apk)
 - **Descarga Directa del Informe PDF Oficial (8 Páginas):** [Informe_Final_SOC_L2_Incidentes.pdf](https://bckdrx-collab.github.io/soc-l2-incident-response/Informe_Final_SOC_L2_Incidentes.pdf)
 - **Repositorio de Código Fuente:** [https://github.com/bckdrx-collab/soc-l2-incident-response](https://github.com/bckdrx-collab/soc-l2-incident-response)
 

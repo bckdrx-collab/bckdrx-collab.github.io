@@ -334,7 +334,7 @@ rule YARAX_SOC_L2_MultiIncident_Artifact_Detector
         $persist_task  = "\\Microsoft\\Windows\\UpdateCheck" ascii wide
 
         // INC-03: Sabotaje Pre-Ransomware VSS (LOLBAS vssadmin)
-        $lolbas_vss    = /vssadmin(\.exe)?\s+delete\s+shadows\s+\/all\s+\/quiet/i
+        $lolbas_vss    = /vssadmin(\\.exe)?\\s+delete\\s+shadows\\s+\\/all\\s+\\/quiet/i
 
         // INC-02 & INC-04: Empaquetado de exfiltración (LOLBAS tar.exe & GTFOBins 7z)
         $stage_finance = "C:\\Temp\\finance.zip" ascii wide nocase
@@ -362,3 +362,4 @@ rule YARAX_SOC_L2_MultiIncident_Artifact_Detector
         or any of ($c2_legal_ip, $c2_fin_ip)
 }
 """
+

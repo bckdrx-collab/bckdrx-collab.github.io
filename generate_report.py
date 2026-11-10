@@ -721,6 +721,71 @@ def build_static_web_portal(
       line-height: 1.55;
       resize: vertical;
     }}
+    .btn-apk-glow {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: linear-gradient(135deg, #00F0FF 0%, #8B5CF6 100%);
+      color: #040711;
+      text-decoration: none;
+      padding: 0.55rem 1.05rem;
+      border-radius: 11px;
+      font-weight: 800;
+      font-size: 0.82rem;
+      border: 1px solid rgba(255, 255, 255, 0.32);
+      box-shadow: 0 6px 20px rgba(0, 240, 255, 0.28);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }}
+    .btn-apk-glow:hover {{
+      transform: translateY(-1px);
+      box-shadow: 0 10px 26px rgba(0, 240, 255, 0.48);
+    }}
+    /* Responsive Adaptations for Tablets (768px - 1024px) & Smartphones (< 768px) */
+    @media (max-width: 1024px) {{
+      .bento-kpi-grid {{
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+      }}
+      .inc-3col {{
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      }}
+    }}
+    @media (max-width: 768px) {{
+      .top-command-bar {{
+        padding: 0.65rem 0.85rem;
+        gap: 0.55rem;
+      }}
+      .mode-pills {{
+        width: 100%;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        -webkit-overflow-scrolling: touch;
+        padding: 0.3rem;
+      }}
+      .mode-pill {{
+        white-space: nowrap;
+        flex-shrink: 0;
+      }}
+      .top-actions {{
+        width: 100%;
+        justify-content: stretch;
+        flex-wrap: wrap;
+      }}
+      .btn-pdf-glow, .btn-apk-glow {{
+        flex: 1 1 auto;
+        justify-content: center;
+        font-size: 0.78rem;
+        padding: 0.5rem 0.75rem;
+      }}
+      .bento-kpi-grid {{
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      }}
+      .inc-3col, .charts-2x2, .dual-editors, .copilot-input-row {{
+        grid-template-columns: 1fr !important;
+      }}
+      .hero-title {{
+        font-size: 1.25rem !important;
+      }}
+    }}
     .hidden-mod {{ display: none !important; }}
   </style>
 </head>
@@ -734,7 +799,7 @@ def build_static_web_portal(
         <div class="brand-name">
           JEV // Cyber Command OS <span class="pulse-dot" title="Motor Forense Activo"></span>
         </div>
-        <div class="brand-meta">LANGCHAIN LCEL · SOC NIVEL 2 · DFIR ENGINE v3.0</div>
+        <div class="brand-meta">LANGCHAIN LCEL · SOC NIVEL 2 · MOBILE, TABLET & WEB v3.0</div>
       </div>
     </div>
 
@@ -749,8 +814,11 @@ def build_static_web_portal(
     </nav>
 
     <div class="top-actions">
-      <a href="Informe_Final_SOC_L2_Incidentes.pdf" download="Informe_Final_SOC_L2_Incidentes.pdf" class="btn-pdf-glow">
-        📥 Descargar PDF Oficial (7 Págs)
+      <a href="JEV_SOC_L2_Cyber_Command_Mobile_Tablet.apk" download="JEV_SOC_L2_Cyber_Command_Mobile_Tablet.apk" class="btn-apk-glow">
+        📱 Descargar APK (Mobile & Tablet)
+      </a>
+      <a href="Informe_Final_SOC_L2_Incidentes.pdf" download="Informe_Final_SOC_L2_Incidentes.pdf" onclick="if(window.JevAndroidBridge){{window.JevAndroidBridge.openNativePdfViewer();return false;}}" class="btn-pdf-glow">
+        📥 Descargar PDF Oficial (8 Págs)
       </a>
     </div>
   </header>
@@ -1212,7 +1280,7 @@ def build_static_web_portal(
           <pre>${{escapeHtml(SOC_DATA.yarax_rust + "\\n\\n" + SOC_DATA.yara_classic)}}</pre>
         `;
       }} else if (q.includes('playbook') || q.includes('powershell') || q.includes('comando')) {{
-        const allCmds = findings.slice(0, 6).map(f => `# [${{f.id}}] ${{f.titulo}}\n${{f.comandos_contencion}}`).join('\n\n');
+        const allCmds = findings.slice(0, 6).map(f => '# [' + f.id + '] ' + f.titulo + '\\n' + f.comandos_contencion).join('\\n\\n');
         html = `
           <h3>🛡️ Playbook Maestro de Contención CLI (SOC Nivel 2)</h3>
           <pre>${{escapeHtml(allCmds)}}</pre>
@@ -1521,7 +1589,12 @@ def build_static_web_portal(
 
     function copyActiveDetectionRule(btn) {{
       const box = document.getElementById('detectionRuleCodeBox');
-      navigator.clipboard.writeText(box.textContent || '');
+      const text = box.textContent || '';
+      if (window.JevAndroidBridge && window.JevAndroidBridge.copyToClipboard) {{
+        window.JevAndroidBridge.copyToClipboard(text, 'Regla ' + activeDetectionTab.toUpperCase());
+      }} else if (navigator.clipboard) {{
+        navigator.clipboard.writeText(text);
+      }}
       const prev = btn.textContent;
       btn.textContent = '✓ Regla Copiada';
       setTimeout(() => btn.textContent = prev, 1500);
@@ -1532,7 +1605,12 @@ def build_static_web_portal(
       const fname = activeDetectionTab === 'sigma'
         ? 'soc_l2_sigma_rules.yml'
         : (activeDetectionTab === 'yara' ? 'soc_l2_yara_classic.yar' : 'soc_l2_yarax_rust.yarx');
-      const blob = new Blob([box.textContent || ''], {{ type: 'text/plain;charset=utf-8' }});
+      const content = box.textContent || '';
+      if (window.JevAndroidBridge && window.JevAndroidBridge.shareTextFile) {{
+        window.JevAndroidBridge.shareTextFile(fname, content);
+        return;
+      }}
+      const blob = new Blob([content], {{ type: 'text/plain;charset=utf-8' }});
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

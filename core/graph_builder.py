@@ -8,11 +8,29 @@ e Infraestructura C2 de Exfiltración.
 """
 
 from typing import Any, Dict, List, Tuple
+import ipaddress
 import math
 import networkx as nx
 import pandas as pd
 import plotly.graph_objects as go
-from core.parser import is_external_ip
+
+
+def is_external_ip(ip_str: str) -> bool:
+    """Determina si una dirección IP no pertenece a redes corporativas privadas RFC 1918 ni a loopback."""
+    try:
+        clean_ip = str(ip_str).strip().split(":")[0]
+        ip = ipaddress.ip_address(clean_ip)
+        if ip.is_loopback:
+            return False
+        if (
+            ip in ipaddress.ip_network("10.0.0.0/8")
+            or ip in ipaddress.ip_network("172.16.0.0/12")
+            or ip in ipaddress.ip_network("192.168.0.0/16")
+        ):
+            return False
+        return True
+    except (ValueError, AttributeError):
+        return False
 
 
 def build_siem_attack_graph_data(
@@ -366,3 +384,4 @@ def get_attack_graph_json_export(df: pd.DataFrame, findings: List[Dict[str, Any]
         })
 
     return {"meta": meta, "nodes": nodes_list, "edges": edges_list}
+
